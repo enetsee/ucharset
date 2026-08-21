@@ -1,7 +1,8 @@
 (* A sorted list of disjoint, non-adjacent inclusive ranges *)
 type t = { ivals : int array } [@@unboxed]
 
-let[@inline] min (a : int) b = if a <= b then a else b
+(* [Stdlib.max] is a polymorphic function; at [int] this one compiles to a
+   compare and a branch. *)
 let[@inline] max (a : int) b = if a >= b then a else b
 
 (* -- Distinguished codepoints ---------------------------------------------- *)
@@ -793,7 +794,7 @@ module Partition = struct
     ; nblocks : int
     }
 
-  let nothing = { lo = [||]; hi = [||]; lab = [||]; rep = [||]; nblocks = 0 }
+  let empty = { lo = [||]; hi = [||]; lab = [||]; rep = [||]; nblocks = 0 }
 
   let universe =
     { lo = [| 0; surrogate_hi + 1 |]
@@ -820,7 +821,7 @@ module Partition = struct
     let bs = List.filter (fun b -> Array.length b.ivals > 0) bs in
     let nseg = List.fold_left (fun acc b -> acc + (Array.length b.ivals / 2)) 0 bs in
     if nseg = 0
-    then nothing
+    then empty
     else (
       let lo = Array.make nseg 0
       and hi = Array.make nseg 0

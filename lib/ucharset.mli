@@ -261,6 +261,11 @@ module Partition : sig
       of their least element. *)
   type t
 
+  (** The partition with no blocks, covering nothing. What {!of_blocks} yields
+      for an empty list, and what {!meet} yields when the two sides share no
+      codepoint. *)
+  val empty : t
+
   (** The one-block partition of the whole codespace. Identity for {!meet}. *)
   val universe : t
 

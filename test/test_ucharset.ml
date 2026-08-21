@@ -1053,7 +1053,39 @@ let arb_partition =
 ;;
 
 let partition =
-  [ case "universe" (fun () ->
+  [ case "empty" (fun () ->
+      Alcotest.(check int)
+        "no blocks"
+        0
+        (Ucharset.Partition.num_blocks Ucharset.Partition.empty);
+      Alcotest.(check (list (of_pp Ucharset.pp)))
+        "no blocks to list"
+        []
+        (Ucharset.Partition.blocks Ucharset.Partition.empty);
+      Alcotest.(check (list int))
+        "no representatives"
+        []
+        (Ucharset.Partition.representatives Ucharset.Partition.empty);
+      Alcotest.(check int)
+        "of_blocks []"
+        0
+        (Ucharset.Partition.num_blocks (Ucharset.Partition.of_blocks []));
+      (* meeting partitions whose supports are disjoint *)
+      Alcotest.(check int)
+        "meet of disjoint supports"
+        0
+        (Ucharset.Partition.num_blocks
+           (Ucharset.Partition.meet
+              (Ucharset.Partition.of_blocks [ Ucharset.range ~lo:0 ~hi:10 ])
+              (Ucharset.Partition.of_blocks [ Ucharset.range ~lo:20 ~hi:30 ])));
+      Alcotest.(check int)
+        "meet with empty"
+        0
+        (Ucharset.Partition.num_blocks
+           (Ucharset.Partition.meet Ucharset.Partition.empty Ucharset.Partition.universe));
+      raises_invalid "no block to index" (fun () ->
+        Ucharset.Partition.block Ucharset.Partition.empty 0))
+  ; case "universe" (fun () ->
       Alcotest.(check int)
         "one block"
         1
