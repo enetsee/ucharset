@@ -1,5 +1,8 @@
 # ucharset
 
+[![CI](https://github.com/enetsee/ucharset/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/enetsee/ucharset/actions/workflows/ci.yml)
+[![Docs](https://github.com/enetsee/ucharset/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/enetsee/ucharset/actions/workflows/docs.yml)
+
 Sets of Unicode scalar values, represented as sorted runs of inclusive
 intervals.
 
@@ -7,6 +10,8 @@ Size is proportional to the number of runs rather than the number of
 codepoints, so `all` is four words of payload. Elements are scalar values in
 the sense of `Uchar.t`; the surrogate block is excluded by construction, and
 functions taking raw codepoints reject it.
+
+[API documentation](https://enetsee.github.io/ucharset/ucharset/Ucharset/index.html)
 
 ## Install
 
@@ -55,6 +60,7 @@ is stable and part of the interface.
 ```sh
 dune build
 dune runtest
+dune build @doc     # _build/default/_doc/_html
 ```
 
 ## License
