@@ -1,0 +1,11 @@
+; Every warning enabled and fatal while developing except warning 48 since 
+; [QCheck_alcotest.to_alcotest] carries optional arguments that
+; [List.map] erases.
+;
+; Scoped to the dev profile, so a release build (opam, [dune build -p]) keeps
+; dune's defaults and installs even if a future compiler adds a warning.
+
+(env
+ (dev
+  (flags
+   (:standard -w +a-48 -warn-error +a))))
