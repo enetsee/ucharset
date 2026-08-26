@@ -1387,6 +1387,280 @@ let printing =
       ]
 ;;
 
+(* -- Bulk construction at scale ---------------------------------------------
+
+   [Builder.build] and [of_list] pick one of three sorts by input: an ascending
+   pass, a merge sort below an internal size threshold, a radix sort at or
+   above it. The generators above make at most a dozen intervals, so these
+   check all three at sizes straddling the threshold, against a bitmap oracle.
+
+   The span stays below the surrogate block, so every generated codepoint is a
+   scalar value. *)
+
+let bulk =
+  let span = 0xD000 in
+  (* Canonical runs of a codepoint list, computed by marking a bitmap. *)
+  let oracle cps =
+    let seen = Bytes.make span '\000' in
+    List.iter
+      (fun (lo, hi) ->
+         for cp = lo to hi do
+           Bytes.set seen cp '\001'
+         done)
+      cps;
+    let out = ref []
+    and i = ref 0 in
+    while !i < span do
+      if Bytes.get seen !i = '\001'
+      then (
+        let lo = !i in
+        while !i < span && Bytes.get seen !i = '\001' do
+          incr i
+        done;
+        out := (lo, !i - 1) :: !out)
+      else incr i
+    done;
+    List.rev !out
+  in
+  let check_at n ~width =
+    let st = Random.State.make [| n; width |] in
+    let pairs =
+      List.init n (fun _ ->
+        let lo = Random.State.int st (span - width - 1) in
+        lo, lo + Random.State.int st width)
+    in
+    let expected = oracle pairs in
+    let ascending = List.sort compare pairs in
+    let label suffix = Printf.sprintf "n=%d width=%d %s" n width suffix in
+    (* of_intervals, shuffled and ascending: same answer either way. *)
+    Alcotest.(check ivals)
+      (label "of_intervals shuffled")
+      expected
+      (Ucharset.to_list (Ucharset.of_intervals pairs));
+    Alcotest.(check ivals)
+      (label "of_intervals ascending")
+      expected
+      (Ucharset.to_list (Ucharset.of_intervals ascending));
+    (* Builder, the same two orders. *)
+    let via_builder ps =
+      let b = Ucharset.Builder.create () in
+      List.iter (fun (lo, hi) -> Ucharset.Builder.add_interval b ~lo ~hi) ps;
+      Ucharset.to_list (Ucharset.Builder.build b)
+    in
+    Alcotest.(check ivals) (label "Builder shuffled") expected (via_builder pairs);
+    Alcotest.(check ivals) (label "Builder ascending") expected (via_builder ascending);
+    (* of_list takes the single-codepoint sort, a different key width. *)
+    let singles = List.map fst pairs in
+    Alcotest.(check ivals)
+      (label "of_list")
+      (oracle (List.map (fun c -> c, c) singles))
+      (Ucharset.to_list (Ucharset.of_list singles))
+  in
+  [ (* Width 1 keeps every interval a singleton, so runs = cardinal; wider
+       intervals overlap and exercise canonicalization too. *)
+    case "below the threshold" (fun () ->
+      check_at 100 ~width:1;
+      check_at 100 ~width:40)
+  ; case "either side of the threshold" (fun () ->
+      check_at 511 ~width:1;
+      check_at 512 ~width:1;
+      check_at 513 ~width:1;
+      check_at 512 ~width:40)
+  ; case "well past the threshold" (fun () ->
+      check_at 5000 ~width:1;
+      check_at 5000 ~width:60;
+      check_at 20000 ~width:3)
+  ; (* The radix sort keys on both endpoints; intervals sharing a lower bound
+       must still come out ordered. *)
+    case "shared lower bounds" (fun () ->
+      let pairs = List.init 2000 (fun i -> 100, 100 + (i mod 500)) in
+      Alcotest.(check ivals)
+        "duplicated lo"
+        (oracle pairs)
+        (Ucharset.to_list (Ucharset.of_intervals pairs)))
+  ; case "already ascending and dense" (fun () ->
+      let pairs = List.init 4000 (fun i -> i * 3, (i * 3) + 1) in
+      Alcotest.(check ivals)
+        "ascending"
+        (oracle pairs)
+        (Ucharset.to_list (Ucharset.of_intervals pairs)))
+  ]
+;;
+
+(* -- Element-wise traversal --------------------------------------------------
+
+   [filter] emits one interval per surviving run, so every boundary matters: a
+   run starting where an input interval starts, one ending where it ends, a
+   codepoint dropped from the middle, everything dropped, nothing dropped.
+   [fold], [exists] and [for_all] share that traversal and are checked here
+   against the same model. *)
+
+let traversal =
+  let of_elems cps = Ucharset.of_list cps in
+  let elems t = List.of_seq (Ucharset.to_seq t) in
+  let check name t f =
+    let expected = of_elems (List.filter f (elems t)) in
+    Alcotest.(check cset) (name ^ ": filter") expected (Ucharset.filter f t);
+    (* Same traversal. *)
+    Alcotest.(check int)
+      (name ^ ": fold")
+      (List.fold_left (fun n cp -> n lxor cp) 0 (elems t))
+      (Ucharset.fold (fun cp n -> n lxor cp) t 0);
+    Alcotest.(check bool)
+      (name ^ ": exists")
+      (List.exists f (elems t))
+      (Ucharset.exists f t);
+    Alcotest.(check bool)
+      (name ^ ": for_all")
+      (List.for_all f (elems t))
+      (Ucharset.for_all f t)
+  in
+  let shapes =
+    [ "empty", Ucharset.empty
+    ; "singleton", Ucharset.singleton 5
+    ; "one run", Ucharset.range ~lo:10 ~hi:20
+    ; "at zero", Ucharset.range ~lo:0 ~hi:7
+    ; ( "at the top"
+      , Ucharset.range ~lo:(Ucharset.max_codepoint - 7) ~hi:Ucharset.max_codepoint )
+    ; "across the surrogates", Ucharset.range ~lo:0xD7FD ~hi:0xE002
+    ; "many runs", Ucharset.of_intervals [ 1, 3; 7, 7; 11, 20; 40, 41 ]
+    ; "comb", Ucharset.of_list (List.init 50 (fun i -> i * 2))
+    ]
+  in
+  let preds =
+    [ ("always", fun _ -> true)
+    ; ("never", fun _ -> false)
+    ; ("even", fun cp -> cp land 1 = 0)
+    ; ("upper half", fun cp -> cp >= 15)
+    ; ("lower half", fun cp -> cp <= 15)
+    ; ("not the ends", fun cp -> cp <> 10 && cp <> 20)
+    ; ("one hole", fun cp -> cp <> 15)
+    ; ("every third", fun cp -> cp mod 3 <> 0)
+    ]
+  in
+  List.map
+    (fun (sname, t) ->
+       case sname (fun () ->
+         List.iter (fun (pname, f) -> check (sname ^ "/" ^ pname) t f) preds))
+    shapes
+;;
+
+(* -- Galloping ---------------------------------------------------------------
+
+   [disjoint] skips ahead by doubling and bisecting when one set's runs sit
+   below the other's. The property tests above use sets of a few intervals,
+   where the skip is never long enough to leave the first step. These use runs
+   that sit far apart, so the gallop overshoots and has to bisect back. *)
+
+let galloping =
+  let runs ~from ~count = List.init count (fun i -> from + (i * 4), from + (i * 4) + 1) in
+  let check name a b want =
+    Alcotest.(check bool) (name ^ " a b") want (Ucharset.disjoint a b);
+    Alcotest.(check bool) (name ^ " b a") want (Ucharset.disjoint b a);
+    (* The model: disjoint iff the intersection is empty. *)
+    Alcotest.(check bool)
+      (name ^ " vs inter")
+      (Ucharset.is_empty (Ucharset.inter a b))
+      (Ucharset.disjoint a b)
+  in
+  [ case "far apart, disjoint" (fun () ->
+      List.iter
+        (fun n ->
+           let a = Ucharset.of_intervals (runs ~from:0 ~count:n) in
+           let b = Ucharset.of_intervals (runs ~from:(4 * n) ~count:n) in
+           check (Printf.sprintf "n=%d" n) a b true)
+        [ 1; 2; 3; 8; 37; 100; 1000; 5000 ])
+  ; case "far apart, meeting at the end" (fun () ->
+      List.iter
+        (fun n ->
+           let a = Ucharset.of_intervals (runs ~from:0 ~count:n) in
+           (* [b] starts past [a] but reaches back to share [a]'s last run. *)
+           let b =
+             Ucharset.union
+               (Ucharset.of_intervals (runs ~from:(4 * n) ~count:n))
+               (Ucharset.singleton (4 * (n - 1)))
+           in
+           check (Printf.sprintf "n=%d" n) a b false)
+        [ 1; 2; 3; 8; 37; 100; 1000; 5000 ])
+  ; (* The gallop looks for the first run ending at or after the other set's
+       start. A run ending exactly there overlaps by one codepoint, and is the
+       boundary the search is easiest to get wrong at. *)
+    case "touching by one codepoint after a long skip" (fun () ->
+      List.iter
+        (fun n ->
+           let a = Ucharset.of_intervals (runs ~from:0 ~count:n) in
+           let last_hi = (4 * (n - 1)) + 1 in
+           check
+             (Printf.sprintf "a ends on b's start, n=%d" n)
+             a
+             (Ucharset.range ~lo:last_hi ~hi:(last_hi + 100))
+             false;
+           check
+             (Printf.sprintf "b ends on a's start, n=%d" n)
+             (Ucharset.of_intervals (runs ~from:100_000 ~count:n))
+             (Ucharset.range ~lo:0 ~hi:100_000)
+             false;
+           (* A singleton meeting a run in the middle of [a], where the search
+             has candidates on both sides and cannot be rescued by clamping at
+             the end of the array. *)
+           if n >= 8
+           then (
+             let mid = n / 2 in
+             check
+               (Printf.sprintf "singleton on a middle run's end, n=%d" n)
+               a
+               (Ucharset.singleton ((4 * mid) + 1))
+               false;
+             check
+               (Printf.sprintf "singleton on a middle run's start, n=%d" n)
+               a
+               (Ucharset.singleton (4 * mid))
+               false;
+             check
+               (Printf.sprintf "singleton in a middle gap, n=%d" n)
+               a
+               (Ucharset.singleton ((4 * mid) + 2))
+               true);
+           (* One past it is a miss, and must stay one. *)
+           check
+             (Printf.sprintf "a stops just short, n=%d" n)
+             a
+             (Ucharset.range ~lo:(last_hi + 1) ~hi:(last_hi + 100))
+             true)
+        [ 1; 2; 3; 8; 37; 100; 1000; 5000 ])
+  ; case "one long run against many" (fun () ->
+      let many = Ucharset.of_intervals (runs ~from:0 ~count:2000) in
+      check "above" many (Ucharset.range ~lo:100_000 ~hi:200_000) true;
+      check "overlapping" many (Ucharset.range ~lo:0 ~hi:200_000) false;
+      check "in a gap" many (Ucharset.singleton 2) true;
+      check "on a run" many (Ucharset.singleton 4) false)
+  ; case "offset prefixes of a many-run set" (fun () ->
+      (* Two prefixes of the same table starting at different intervals, which
+         is the shape that made the linear scan visible. *)
+      (* Stays below the surrogate block, and the stride keeps the runs
+         apart. *)
+      let ivs =
+        Array.init 800 (fun i ->
+          let lo = (i * 60) + (i mod 7) in
+          lo, lo + (i mod 13))
+      in
+      let take from count =
+        Ucharset.of_intervals
+          (List.init count (fun i -> ivs.((from + i) mod Array.length ivs)))
+      in
+      List.iter
+        (fun count ->
+           let a = take 0 count
+           and b = take 37 count in
+           check
+             (Printf.sprintf "count=%d" count)
+             a
+             b
+             (Ucharset.is_empty (Ucharset.inter a b)))
+        [ 1; 5; 20; 37; 38; 100; 400 ])
+  ]
+;;
+
 let () =
   Alcotest.run
     "ucharset"
@@ -1394,7 +1668,10 @@ let () =
     ; "queries", queries
     ; "algebra", qc algebra_props @ algebra_units
     ; "builder", builder
+    ; "bulk construction", bulk
     ; "iteration", iteration
+    ; "traversal", traversal
+    ; "galloping", galloping
     ; "lookup", lookup
     ; "ascii_table", ascii_table
     ; "packed", packed

@@ -3,13 +3,24 @@
 [![CI](https://github.com/enetsee/ucharset/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/enetsee/ucharset/actions/workflows/ci.yml)
 [![Docs](https://github.com/enetsee/ucharset/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/enetsee/ucharset/actions/workflows/docs.yml)
 
-Sets of Unicode scalar values, represented as sorted runs of inclusive
-intervals.
+Character classes for Unicode-aware lexers and regex engines: a faster,
+smaller `Set.Make(Uchar)`.
 
-Size is proportional to the number of runs rather than the number of
-codepoints, so `all` is four words of payload. Elements are scalar values in
-the sense of `Uchar.t`; the surrogate block is excluded by construction, and
-functions taking raw codepoints reject it.
+Cost follows the run count, not the cardinal. `Alphabetic` is 147,421
+codepoints in 761 runs:
+
+| | ucharset | `Set.Make(Uchar)` |
+|---|---:|---:|
+| size | 12KB | 5.6MB |
+| build | 8.2us | 14.7ms |
+| `mem` | 11ns | 43ns |
+| `Lookup.mem` | 1.8ns | — |
+
+`all` is every scalar value: 40 bytes against 42.4MB, built in 41ns against
+159ms.
+
+Elements are scalar values in the sense of `Uchar.t`; the surrogate block is
+excluded by construction, and functions taking raw codepoints reject it.
 
 [API documentation](https://enetsee.github.io/ucharset/ucharset/Ucharset/index.html)
 

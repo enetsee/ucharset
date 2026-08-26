@@ -17,16 +17,16 @@
 
 (package
  (name ucharset)
- (synopsis "Sets of Unicode scalar values as sorted interval runs")
+ (synopsis "Character classes for Unicode-aware lexers and regex engines")
  (description
-  "Immutable sets of Unicode scalar values, stored as sorted runs of inclusive
-intervals so that size is proportional to the number of runs rather than the
-number of codepoints. Surrogates are excluded by construction. Alongside the
-usual set algebra there is a builder for accumulating a set from many
-fragments, a compiled two-level bitmap trie for constant-time membership in a
-matcher or lexer inner loop, partition refinement for computing derivative
-classes during DFA construction, and a stable packed encoding for embedding
-generated tables in source.")
+  "A faster, smaller Set.Make(Uchar). Cost follows the run count, not the
+cardinal: the Alphabetic property is 147,421 codepoints in 761 runs, held in
+12KB against 5.6MB, and the whole codespace is 40 bytes against 42.4MB.
+Alongside the usual set algebra there is a builder for accumulating a class
+from many fragments, a compiled two-level bitmap trie for membership in an
+inner loop, partition refinement for derivative classes during DFA
+construction, and a stable packed encoding for embedding generated tables in
+source. Surrogates are excluded by construction.")
  (depends
   (ocaml
    (>= 4.14))
