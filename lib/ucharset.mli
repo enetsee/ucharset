@@ -1,25 +1,5 @@
 (** Character classes for Unicode-aware lexers and regex engines: a faster,
-    smaller [Set.Make (Uchar)].
-
-    Cost follows the run count, not the cardinal. The Alphabetic property is
-    147,421 codepoints in 761 runs, held in 12KB against 5.6MB; {!all} is 40
-    bytes against 42.4MB.
-
-    Elements are Unicode scalar values in the sense of [Uchar.t]: codepoints
-    [0 .. 0x10FFFF] excluding the surrogate block [0xD800 .. 0xDFFF], which
-    exists only as a UTF-16 encoding mechanism and cannot occur in well-formed
-    text. Functions taking raw codepoints raise [Invalid_argument] on surrogates
-    and on values outside the codespace; [all] and [comp] never contain
-    surrogates. Noncharacters (e.g. [U+FDD0 .. U+FDEF], [U+FFFE]) are ordinary
-    scalar values and are included.
-
-    Values are immutable and persistent: every operation returns a new set (or
-    one of its arguments unchanged) and never modifies its inputs.
-    Representation size is proportional to the number of intervals, not the
-    number of scalar values.
-
-    Unless otherwise stated, operations taking two sets of [m] and [n] intervals
-    run in O(m + n) time and allocate at most one array. *)
+    smaller [Set.Make (Uchar)] *)
 type t
 
 (** Largest valid codepoint, [0x10FFFF]. *)
