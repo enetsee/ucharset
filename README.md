@@ -6,19 +6,6 @@
 Character classes for Unicode-aware lexers and regex engines: a faster,
 smaller `Set.Make(Uchar)`.
 
-Cost follows the run count, not the cardinal. `Alphabetic` is 147,421
-codepoints in 761 runs:
-
-| | ucharset | `Set.Make(Uchar)` |
-|---|---:|---:|
-| size | 12KB | 5.6MB |
-| build | 8.2us | 14.7ms |
-| `mem` | 11ns | 43ns |
-| `Lookup.mem` | 1.8ns | — |
-
-`all` is every scalar value: 40 bytes against 42.4MB, built in 41ns against
-159ms.
-
 Elements are scalar values in the sense of `Uchar.t`; the surrogate block is
 excluded by construction, and functions taking raw codepoints reject it.
 
