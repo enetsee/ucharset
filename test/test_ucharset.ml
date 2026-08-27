@@ -1498,7 +1498,7 @@ let bulk =
 let traversal =
   let of_elems cps = Ucharset.of_list cps in
   let elems t = List.of_seq (Ucharset.to_seq t) in
-  let check name t f =
+  let check_traversal name t f =
     let expected = of_elems (List.filter f (elems t)) in
     Alcotest.(check cset) (name ^ ": filter") expected (Ucharset.filter f t);
     (* Same traversal. *)
@@ -1541,7 +1541,7 @@ let traversal =
   List.map
     (fun (sname, t) ->
        case sname (fun () ->
-         List.iter (fun (pname, f) -> check (sname ^ "/" ^ pname) t f) preds))
+         List.iter (fun (pname, f) -> check_traversal (sname ^ "/" ^ pname) t f) preds))
     shapes
 ;;
 
@@ -1554,7 +1554,7 @@ let traversal =
 
 let galloping =
   let runs ~from ~count = List.init count (fun i -> from + (i * 4), from + (i * 4) + 1) in
-  let check name a b want =
+  let check_disjoint name a b want =
     Alcotest.(check bool) (name ^ " a b") want (Ucharset.disjoint a b);
     Alcotest.(check bool) (name ^ " b a") want (Ucharset.disjoint b a);
     (* The model: disjoint iff the intersection is empty. *)
@@ -1568,7 +1568,7 @@ let galloping =
         (fun n ->
            let a = Ucharset.of_intervals (runs ~from:0 ~count:n) in
            let b = Ucharset.of_intervals (runs ~from:(4 * n) ~count:n) in
-           check (Printf.sprintf "n=%d" n) a b true)
+           check_disjoint (Printf.sprintf "n=%d" n) a b true)
         [ 1; 2; 3; 8; 37; 100; 1000; 5000 ])
   ; case "far apart, meeting at the end" (fun () ->
       List.iter
@@ -1580,7 +1580,7 @@ let galloping =
                (Ucharset.of_intervals (runs ~from:(4 * n) ~count:n))
                (Ucharset.singleton (4 * (n - 1)))
            in
-           check (Printf.sprintf "n=%d" n) a b false)
+           check_disjoint (Printf.sprintf "n=%d" n) a b false)
         [ 1; 2; 3; 8; 37; 100; 1000; 5000 ])
   ; (* The gallop looks for the first run ending at or after the other set's
        start. A run ending exactly there overlaps by one codepoint, and is the
@@ -1590,12 +1590,12 @@ let galloping =
         (fun n ->
            let a = Ucharset.of_intervals (runs ~from:0 ~count:n) in
            let last_hi = (4 * (n - 1)) + 1 in
-           check
+           check_disjoint
              (Printf.sprintf "a ends on b's start, n=%d" n)
              a
              (Ucharset.range ~lo:last_hi ~hi:(last_hi + 100))
              false;
-           check
+           check_disjoint
              (Printf.sprintf "b ends on a's start, n=%d" n)
              (Ucharset.of_intervals (runs ~from:100_000 ~count:n))
              (Ucharset.range ~lo:0 ~hi:100_000)
@@ -1606,23 +1606,23 @@ let galloping =
            if n >= 8
            then (
              let mid = n / 2 in
-             check
+             check_disjoint
                (Printf.sprintf "singleton on a middle run's end, n=%d" n)
                a
                (Ucharset.singleton ((4 * mid) + 1))
                false;
-             check
+             check_disjoint
                (Printf.sprintf "singleton on a middle run's start, n=%d" n)
                a
                (Ucharset.singleton (4 * mid))
                false;
-             check
+             check_disjoint
                (Printf.sprintf "singleton in a middle gap, n=%d" n)
                a
                (Ucharset.singleton ((4 * mid) + 2))
                true);
            (* One past it is a miss, and must stay one. *)
-           check
+           check_disjoint
              (Printf.sprintf "a stops just short, n=%d" n)
              a
              (Ucharset.range ~lo:(last_hi + 1) ~hi:(last_hi + 100))
@@ -1630,10 +1630,10 @@ let galloping =
         [ 1; 2; 3; 8; 37; 100; 1000; 5000 ])
   ; case "one long run against many" (fun () ->
       let many = Ucharset.of_intervals (runs ~from:0 ~count:2000) in
-      check "above" many (Ucharset.range ~lo:100_000 ~hi:200_000) true;
-      check "overlapping" many (Ucharset.range ~lo:0 ~hi:200_000) false;
-      check "in a gap" many (Ucharset.singleton 2) true;
-      check "on a run" many (Ucharset.singleton 4) false)
+      check_disjoint "above" many (Ucharset.range ~lo:100_000 ~hi:200_000) true;
+      check_disjoint "overlapping" many (Ucharset.range ~lo:0 ~hi:200_000) false;
+      check_disjoint "in a gap" many (Ucharset.singleton 2) true;
+      check_disjoint "on a run" many (Ucharset.singleton 4) false)
   ; case "offset prefixes of a many-run set" (fun () ->
       (* Two prefixes of the same table starting at different intervals, which
          is the shape that made the linear scan visible. *)
@@ -1652,7 +1652,7 @@ let galloping =
         (fun count ->
            let a = take 0 count
            and b = take 37 count in
-           check
+           check_disjoint
              (Printf.sprintf "count=%d" count)
              a
              b
