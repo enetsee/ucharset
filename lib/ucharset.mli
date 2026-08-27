@@ -260,16 +260,16 @@ module Partition : sig
   val of_set : set -> t
 
   (** [of_blocks bs] is the partition whose blocks are the non-empty elements of
-      [bs]. Raises [Invalid_argument] if two of them overlap. O(B log B) in the
-      total interval count, since it has to sort. *)
+      [bs], numbered in increasing order of least element as for any partition
+      rather than by position in [bs]. Raises [Invalid_argument] if two of them
+      overlap. O(B log B) in the total interval count, since it has to sort. *)
   val of_blocks : set list -> t
 
   (** Common refinement. O(P + Q) in the total interval counts. *)
   val meet : t -> t -> t
 
   (** [meet_all ps] is the common refinement of all of [ps], and [universe] for
-      the empty list. Sweeps every input at once, so no intermediate partition
-      is built. *)
+      the empty list. *)
   val meet_all : t list -> t
 
   val num_blocks : t -> int
@@ -298,9 +298,9 @@ end
     either list has overlapping blocks. *)
 val refine : t list -> t list -> t list
 
-(** [refine_all ps] refines every partition in [ps] together in one sweep;
-    [[all]] for the empty list. Prefer this to folding {!refine}, which rebuilds
-    the block sets at every step. *)
+(** [refine_all ps] refines every partition in [ps] together, building the
+    block sets once at the end; [[all]] for the empty list. Prefer this to
+    folding {!refine}, which rebuilds them at every step. *)
 val refine_all : t list list -> t list
 
 (** {1 Queries} *)

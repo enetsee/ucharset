@@ -1054,9 +1054,17 @@ module Partition = struct
         then invalid_arg "Charset.Partition.of_blocks: blocks are not disjoint"
       done;
       let nblocks = List.length bs in
-      let rep = Array.make nblocks (-1) in
+      let remap = Array.make nblocks (-1) in
+      let rep = Array.make nblocks 0 in
+      let next = ref 0 in
       for i = 0 to nseg - 1 do
-        if rep.(slab.(i)) < 0 then rep.(slab.(i)) <- slo.(i)
+        let l = slab.(i) in
+        if remap.(l) < 0
+        then (
+          remap.(l) <- !next;
+          rep.(!next) <- slo.(i);
+          incr next);
+        slab.(i) <- remap.(l)
       done;
       { lo = slo; hi = shi; lab = slab; rep; nblocks })
   ;;
@@ -1114,76 +1122,21 @@ module Partition = struct
     }
   ;;
 
-  (* The k-way sweep, building no intermediate partition. One cursor per
-     input; each step takes the overlap of all current segments, then advances
-     every cursor whose segment ends soonest, so at least one moves and the
-     walk terminates. *)
   let meet_all ps =
-    match ps with
-    | [] -> universe
-    | [ p ] -> p
-    | [ p; q ] -> meet p q
-    | _ ->
-      let ps = Array.of_list ps in
-      let k = Array.length ps in
-      let nseg = Array.fold_left (fun acc p -> acc + Array.length p.lo) 0 ps in
-      let cur = Array.make k 0 in
-      let olo = Array.make nseg 0
-      and ohi = Array.make nseg 0
-      and olab = Array.make nseg 0
-      and orep = Array.make nseg 0 in
-      let out = ref 0
-      and nb = ref 0 in
-      let key = Array.make k 0 in
-      let ids = Hashtbl.create 16 in
-      let running = ref true in
-      while !running do
-        let live = ref true in
-        for x = 0 to k - 1 do
-          if cur.(x) >= Array.length ps.(x).lo then live := false
-        done;
-        if not !live
-        then running := false
-        else (
-          let l = ref 0
-          and h = ref max_codepoint in
-          for x = 0 to k - 1 do
-            let p = ps.(x) in
-            let c = cur.(x) in
-            if p.lo.(c) > !l then l := p.lo.(c);
-            if p.hi.(c) < !h then h := p.hi.(c)
-          done;
-          if !l <= !h
-          then (
-            for x = 0 to k - 1 do
-              key.(x) <- ps.(x).lab.(cur.(x))
-            done;
-            let id =
-              match Hashtbl.find_opt ids key with
-              | Some id -> id
-              | None ->
-                let id = !nb in
-                incr nb;
-                (* [key] is reused, so store a copy. *)
-                Hashtbl.add ids (Array.copy key) id;
-                orep.(id) <- !l;
-                id
-            in
-            olo.(!out) <- !l;
-            ohi.(!out) <- !h;
-            olab.(!out) <- id;
-            incr out);
-          let hmin = !h in
-          for x = 0 to k - 1 do
-            if ps.(x).hi.(cur.(x)) = hmin then cur.(x) <- cur.(x) + 1
-          done)
-      done;
-      { lo = trim olo !out
-      ; hi = trim ohi !out
-      ; lab = trim olab !out
-      ; rep = trim orep !nb
-      ; nblocks = !nb
-      }
+    let rec halve = function
+      | [] -> universe
+      | [ p ] -> p
+      | ps ->
+        (* Each pass reverses; [meet] is commutative up to block
+           numbering, and its numbering is canonical, so this is safe. *)
+        let rec pass acc = function
+          | a :: b :: rest -> pass (meet a b :: acc) rest
+          | [ a ] -> a :: acc
+          | [] -> acc
+        in
+        halve (pass [] ps)
+    in
+    halve ps
   ;;
 
   (* Extracting a block is a copy; its segments arrive in order and already

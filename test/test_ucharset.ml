@@ -1125,7 +1125,11 @@ let partition =
       is_true
         "the two blocks are c and its complement"
         (norm (Ucharset.Partition.blocks (Ucharset.Partition.of_set c))
-         = norm [ c; Ucharset.comp c ]))
+         = norm [ c; Ucharset.comp c ]);
+      Alcotest.(check (list int))
+        "blocks are numbered by least element, not by position"
+        [ 0; 97 ]
+        (Ucharset.Partition.representatives (Ucharset.Partition.of_set c)))
   ; case "misuse is rejected" (fun () ->
       Alcotest.(check int)
         "empty blocks are dropped"
@@ -1201,6 +1205,14 @@ let partition =
              in
              Ucharset.Partition.blocks m = Ucharset.refine p q
              && Ucharset.Partition.num_blocks m = List.length (Ucharset.refine p q))
+      ; prop "of_blocks numbers its own blocks by least element" arb_partition (fun p ->
+          let m = Ucharset.Partition.of_blocks p in
+          let reps = Ucharset.Partition.representatives m in
+          reps = List.sort Stdlib.compare reps
+          && reps
+             = List.map
+                 (fun b -> Option.get (Ucharset.min_elt_opt b))
+                 (Ucharset.Partition.blocks m))
       ; prop2
           "representatives are the least elements"
           arb_partition
