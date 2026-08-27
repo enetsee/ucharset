@@ -7,9 +7,9 @@
 (source
  (github enetsee/ucharset))
 
-(authors "Michael Thomas")
+(authors "Michael Thomas <mthomas180@gmail.com>")
 
-(maintainers "Michael Thomas")
+(maintainers "Michael Thomas <mthomas180@gmail.com>")
 
 (license MIT)
 

@@ -10,8 +10,8 @@ from many fragments, a compiled two-level bitmap trie for membership in an
 inner loop, partition refinement for derivative classes during DFA
 construction, and a stable packed encoding for embedding generated tables in
 source. Surrogates are excluded by construction."""
-maintainer: ["Michael Thomas"]
-authors: ["Michael Thomas"]
+maintainer: ["Michael Thomas <mthomas180@gmail.com>"]
+authors: ["Michael Thomas <mthomas180@gmail.com>"]
 license: "MIT"
 tags: ["unicode" "charset" "codepoint" "interval set" "regex" "lexer" "dfa"]
 homepage: "https://github.com/enetsee/ucharset"
