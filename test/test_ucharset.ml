@@ -1085,6 +1085,19 @@ let partition =
            (Ucharset.Partition.meet Ucharset.Partition.empty Ucharset.Partition.universe));
       raises_invalid "no block to index" (fun () ->
         Ucharset.Partition.block Ucharset.Partition.empty 0))
+  ; case "block_of degenerate partitions" (fun () ->
+      Alcotest.(check int)
+        "empty partition contains nothing"
+        (-1)
+        (Ucharset.Partition.block_of Ucharset.Partition.empty 65);
+      Alcotest.(check int)
+        "universe puts everything in block 0"
+        0
+        (Ucharset.Partition.block_of Ucharset.Partition.universe 65);
+      Alcotest.(check int)
+        "universe, at the top of the codespace"
+        0
+        (Ucharset.Partition.block_of Ucharset.Partition.universe 0x10FFFF))
   ; case "universe" (fun () ->
       Alcotest.(check int)
         "one block"
@@ -1283,6 +1296,31 @@ let partition =
           norm (Ucharset.refine p p) = norm p)
       ; prop2 "refine commutes" arb_partition arb_partition (fun (p, q) ->
           norm (Ucharset.refine p q) = norm (Ucharset.refine q p))
+      ; prop
+          "block_of agrees with membership in that block"
+          (QCheck.pair arb_partition arb_scalar)
+          (fun (p, cp) ->
+             let p = Ucharset.Partition.of_blocks p in
+             let i = Ucharset.Partition.block_of p cp in
+             if i = -1
+             then
+               (* Not in any block: no block may contain it. *)
+               List.for_all
+                 (fun b -> not (Ucharset.mem b cp))
+                 (Ucharset.Partition.blocks p)
+             else Ucharset.mem (Ucharset.Partition.block p i) cp)
+      ; prop
+          "block_of inverts representative"
+          arb_partition
+          (fun p ->
+             let p = Ucharset.Partition.of_blocks p in
+             let n = Ucharset.Partition.num_blocks p in
+             let rec go i =
+               i >= n
+               || (Ucharset.Partition.block_of p (Ucharset.Partition.representative p i) = i
+                   && go (i + 1))
+             in
+             go 0)
       ]
 ;;
 

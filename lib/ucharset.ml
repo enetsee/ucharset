@@ -1016,6 +1016,27 @@ module Partition = struct
 
   let representatives p = Array.to_list p.rep
 
+  (* Segments are disjoint and ascending in [lo], so the segment holding
+     [cp] is one binary search; its [lab] is the block. Note that the
+     blocks themselves are not intervals -- they interleave -- so this
+     cannot be answered by searching [rep]. *)
+  let block_of p cp =
+    let lo = p.lo
+    and hi = p.hi in
+    let rec go a b =
+      if a >= b
+      then -1
+      else (
+        let mid = (a + b) / 2 in
+        if cp < Array.unsafe_get lo mid
+        then go a mid
+        else if cp > Array.unsafe_get hi mid
+        then go (mid + 1) b
+        else Array.unsafe_get p.lab mid)
+    in
+    go 0 (Array.length lo)
+  ;;
+
   (* Empty blocks are dropped, so [nblocks] counts inhabited blocks and every
      [rep] entry is real. *)
   let of_blocks (bs : set list) =

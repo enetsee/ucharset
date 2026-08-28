@@ -289,6 +289,18 @@ module Partition : sig
   (** [representative p i] is the least element of block [i]. O(1). Raises
       [Invalid_argument] if [i] is out of range. *)
   val representative : t -> int -> int
+
+  (** [block_of p cp] is the index of the block containing [cp], or [-1] if
+      [cp] lies in no block of [p] (which for a partition covering the whole
+      codespace cannot happen). O(log n) in the segment count.
+
+      This is the inverse of {!representative} and the lookup a
+      derivative-based construction wants once it has a partition in hand: it
+      answers "which block is this character in" without building any block
+      set. Searching {!representatives} does not answer it -- blocks are
+      unions of intervals and interleave, so a block's least element says
+      nothing about where its later intervals fall. *)
+  val block_of : t -> int -> int
 end
 
 (** [refine p q] is the common refinement of two partitions given as lists of
