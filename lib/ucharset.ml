@@ -1105,7 +1105,20 @@ module Partition = struct
     and orep = Array.make cap 0 in
     let out = ref 0
     and nb = ref 0 in
-    let ids = Hashtbl.create 16 in
+    (* Pair (block of [p], block of [q]) -> new block id. There are at
+       most [cap] distinct pairs, one per emitted segment, and the key
+       is already an int -- so an open-addressed table over two
+       preallocated arrays does the job without the bucket array,
+       boxed keys, [Some] allocation and polymorphic hash that
+       [Hashtbl] costs on every [meet]. [-1] marks a free slot;
+       [mask] keeps the load factor at or below 1/2. *)
+    let tsize =
+      let rec pow2 k = if k >= cap * 2 then k else pow2 (k * 2) in
+      pow2 8
+    in
+    let mask = tsize - 1 in
+    let tkey = Array.make tsize (-1)
+    and tval = Array.make tsize 0 in
     let i = ref 0
     and j = ref 0 in
     while !i < np && !j < nq do
@@ -1119,14 +1132,22 @@ module Partition = struct
       then (
         let key = (p.lab.(!i) * q.nblocks) + q.lab.(!j) in
         let id =
-          match Hashtbl.find_opt ids key with
-          | Some id -> id
-          | None ->
+          (* Knuth multiplicative, then linear probe. The table can
+             never fill: at most [cap] insertions into [2 * cap]
+             slots. *)
+          let slot = ref (key * 0x27d4_eb2d land max_int land mask) in
+          while Array.unsafe_get tkey !slot >= 0 && Array.unsafe_get tkey !slot <> key do
+            slot := (!slot + 1) land mask
+          done;
+          if Array.unsafe_get tkey !slot = key
+          then Array.unsafe_get tval !slot
+          else (
             let id = !nb in
             incr nb;
-            Hashtbl.add ids key id;
+            Array.unsafe_set tkey !slot key;
+            Array.unsafe_set tval !slot id;
             orep.(id) <- l;
-            id
+            id)
         in
         olo.(!out) <- l;
         ohi.(!out) <- h;

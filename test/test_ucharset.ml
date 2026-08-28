@@ -1309,18 +1309,15 @@ let partition =
                  (fun b -> not (Ucharset.mem b cp))
                  (Ucharset.Partition.blocks p)
              else Ucharset.mem (Ucharset.Partition.block p i) cp)
-      ; prop
-          "block_of inverts representative"
-          arb_partition
-          (fun p ->
-             let p = Ucharset.Partition.of_blocks p in
-             let n = Ucharset.Partition.num_blocks p in
-             let rec go i =
-               i >= n
-               || (Ucharset.Partition.block_of p (Ucharset.Partition.representative p i) = i
-                   && go (i + 1))
-             in
-             go 0)
+      ; prop "block_of inverts representative" arb_partition (fun p ->
+          let p = Ucharset.Partition.of_blocks p in
+          let n = Ucharset.Partition.num_blocks p in
+          let rec go i =
+            i >= n
+            || (Ucharset.Partition.block_of p (Ucharset.Partition.representative p i) = i
+                && go (i + 1))
+          in
+          go 0)
       ]
 ;;
 
