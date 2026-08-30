@@ -5,6 +5,14 @@ type t = { ivals : int array } [@@unboxed]
    compare and a branch. *)
 let[@inline] max (a : int) b = if a >= b then a else b
 
+(* Every [Invalid_argument] this module raises is built here, so the library
+   name the message carries is written once instead of once per raise site. *)
+let fail ?fn msg =
+  match fn with
+  | None -> invalid_arg ("Ucharset: " ^ msg)
+  | Some fn -> invalid_arg ("Ucharset." ^ fn ^ ": " ^ msg)
+;;
+
 (* -- Distinguished codepoints ---------------------------------------------- *)
 let max_codepoint = 0x10FFFF
 let surrogate_lo = 0xD800
@@ -12,9 +20,9 @@ let surrogate_hi = 0xDFFF
 
 let validate_codepoint cp =
   if cp < 0 || cp > max_codepoint
-  then invalid_arg "Charset: codepoint out of range"
+  then fail "codepoint out of range"
   else if cp >= surrogate_lo && cp <= surrogate_hi
-  then invalid_arg "Charset: surrogate codepoint is not a scalar value"
+  then fail "surrogate codepoint is not a scalar value"
 ;;
 
 (* -- Top and bottom -------------------------------------------------------- *)
@@ -1010,7 +1018,7 @@ module Partition = struct
 
   let representative p i =
     if i < 0 || i >= p.nblocks
-    then invalid_arg "Charset.Partition.representative: index out of range";
+    then fail ~fn:"Partition.representative" "index out of range";
     p.rep.(i)
   ;;
 
@@ -1072,7 +1080,7 @@ module Partition = struct
         order;
       for i = 1 to nseg - 1 do
         if slo.(i) <= shi.(i - 1)
-        then invalid_arg "Charset.Partition.of_blocks: blocks are not disjoint"
+        then fail ~fn:"Partition.of_blocks" "blocks are not disjoint"
       done;
       let nblocks = List.length bs in
       let remap = Array.make nblocks (-1) in
@@ -1212,8 +1220,7 @@ module Partition = struct
   ;;
 
   let block p i =
-    if i < 0 || i >= p.nblocks
-    then invalid_arg "Charset.Partition.block: index out of range";
+    if i < 0 || i >= p.nblocks then fail ~fn:"Partition.block" "index out of range";
     let nseg = Array.length p.lo in
     let c = ref 0 in
     for k = 0 to nseg - 1 do
@@ -1425,8 +1432,7 @@ let of_packed_string_opt s =
 
 let of_packed_string s =
   let byte_len = String.length s in
-  if byte_len mod 6 <> 0
-  then invalid_arg "Charset.of_packed_string: length not a multiple of 6";
+  if byte_len mod 6 <> 0 then fail ~fn:"of_packed_string" "length not a multiple of 6";
   let n = byte_len / 3 in
   let a = Array.make n 0 in
   for i = 0 to n - 1 do
@@ -1446,7 +1452,7 @@ let of_packed_string s =
       || (i > 0 && a.(((i - 1) * 2) + 1) + 1 >= lo)
     then ok := false
   done;
-  if not !ok then invalid_arg "Charset.of_packed_string: malformed data";
+  if not !ok then fail ~fn:"of_packed_string" "malformed data";
   { ivals = a }
 ;;
 

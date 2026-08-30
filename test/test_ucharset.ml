@@ -19,15 +19,23 @@ let ivals = Alcotest.(list (pair int int))
 let is_true name b = Alcotest.(check bool) name true b
 let is_false name b = Alcotest.(check bool) name false b
 
+(* Every [Invalid_argument] the library raises names the library, so a rename
+   that misses a message is caught here and not by a user grepping their
+   dependency tree for a module that does not exist. Checked on every raise
+   site the suite already exercises. *)
+let names_library msg =
+  String.starts_with ~prefix:"Ucharset." msg
+  || String.starts_with ~prefix:"Ucharset: " msg
+;;
+
 let raises_invalid name f =
-  Alcotest.(check bool)
-    name
-    true
-    (try
-       ignore (f ());
-       false
-     with
-     | Invalid_argument _ -> true)
+  match f () with
+  | _ -> Alcotest.fail (name ^ ": expected Invalid_argument")
+  | exception Invalid_argument msg ->
+    Alcotest.(check bool)
+      (name ^ ": message names the library, got " ^ msg)
+      true
+      (names_library msg)
 ;;
 
 let case name f = Alcotest.test_case name `Quick f
@@ -284,7 +292,27 @@ let constructors =
         (Ucharset.mem (Ucharset.of_utf_8_string "a\xFFb") 0xFFFD))
   ]
   @ qc
-      [ prop "of_intervals is canonical" arb_wide is_canonical
+      [ prop
+          "an out-of-range codepoint raises, naming the library"
+          QCheck.(int_range (-0x1000) (Ucharset.max_codepoint + 0x1000))
+          (fun cp ->
+             let outcome f =
+               match f () with
+               | _ -> None
+               | exception Invalid_argument msg -> Some msg
+             in
+             List.for_all
+               (fun f ->
+                  match outcome f with
+                  | None -> is_scalar cp
+                  | Some msg -> (not (is_scalar cp)) && names_library msg)
+               [ (fun () -> Ucharset.singleton cp)
+               ; (fun () -> Ucharset.range ~lo:cp ~hi:cp)
+               ; (fun () -> Ucharset.add Ucharset.empty cp)
+               ; (fun () -> Ucharset.remove Ucharset.all cp)
+               ; (fun () -> Ucharset.of_list [ cp ])
+               ])
+      ; prop "of_intervals is canonical" arb_wide is_canonical
       ; prop "of_list round trips through elems" arb_small (fun t ->
           Ucharset.equal (Ucharset.of_list (elems t)) t)
       ; prop "of_intervals round trips through to_list" arb_wide (fun t ->
