@@ -1503,6 +1503,15 @@ let hash t =
 
 (* -- Printing -------------------------------------------------------------- *)
 
+let unwrapped pp t =
+  let b = Buffer.create 64 in
+  let ppf = Format.formatter_of_buffer b in
+  Format.pp_set_margin ppf max_int;
+  pp ppf t;
+  Format.pp_print_flush ppf ();
+  Buffer.contents b
+;;
+
 let pp ppf t =
   Format.fprintf ppf "@[<hov 1>[";
   let first = ref true in
@@ -1514,7 +1523,7 @@ let pp ppf t =
   Format.fprintf ppf "]@]"
 ;;
 
-let to_string t = Format.asprintf "%a" pp t
+let to_string t = unwrapped pp t
 
 (* [U+XXXX] form; four hex digits minimum, more above the BMP. *)
 let pp_hex ppf t =
@@ -1530,7 +1539,7 @@ let pp_hex ppf t =
   Format.fprintf ppf "]@]"
 ;;
 
-let to_hex_string t = Format.asprintf "%a" pp_hex t
+let to_hex_string t = unwrapped pp_hex t
 
 (* A regex-style character class view: [{a-g j m-t}]. Members are written as
    themselves, UTF-8 encoded; the escapes cover the syntax ([-], space, [{],
@@ -1572,4 +1581,4 @@ let pp_class ppf t =
   Format.fprintf ppf "}@]"
 ;;
 
-let to_class_string t = Format.asprintf "%a" pp_class t
+let to_class_string t = unwrapped pp_class t

@@ -425,12 +425,16 @@ val hash : t -> int
 (** Prints the runs of the set, e.g. [[97-122; 181; 223-246]]. *)
 val pp : Format.formatter -> t -> unit
 
+(** As {!pp}, but into a string on a single line. The printers break at the
+    formatter's margin; the string forms have none, so the result never contains
+    a newline, however wide the set. *)
 val to_string : t -> string
 
 (** As {!pp}, but in [U+XXXX] notation:
     [[U+0061-U+007A; U+00B5; U+00DF-U+00F6]]. *)
 val pp_hex : Format.formatter -> t -> unit
 
+(** As {!pp_hex}, on a single line. See {!to_string}. *)
 val to_hex_string : t -> string
 
 (** A regex-style character class view, reading a set as characters rather than
@@ -446,4 +450,5 @@ val to_hex_string : t -> string
     with no separators, and its own escaping rules. *)
 val pp_class : Format.formatter -> t -> unit
 
+(** As {!pp_class}, on a single line. See {!to_string}. *)
 val to_class_string : t -> string

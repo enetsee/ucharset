@@ -1367,6 +1367,17 @@ let partition =
 
 (* -- Printing -------------------------------------------------------------- *)
 
+(* Random ranges over the codespace merge into a handful of runs, so a set whose
+   printed forms overflow the default 78-column margin has to be built from
+   spread singletons: 40 members already need 79 columns in the tightest of the
+   three forms. *)
+let arb_spread =
+  QCheck.(
+    set_print
+      print_set
+      (map ~rev:elems Ucharset.of_list (list_size (Gen.int_range 40 60) arb_scalar)))
+;;
+
 let printing =
   [ case "pp" (fun () ->
       let s = Ucharset.of_intervals [ 97, 122; 181, 181; 223, 246 ] in
@@ -1441,6 +1452,19 @@ let printing =
         "all"
         "{\\0-\xed\x9f\xbf \xee\x80\x80-\xf4\x8f\xbf\xbf}"
         (cls Ucharset.all))
+  ; case "the string forms do not wrap" (fun () ->
+      (* twelve singletons print to 106 columns, so the default 78-column
+         margin used to fold this onto two lines *)
+      let wide = Ucharset.of_list (List.init 12 (fun i -> 1 + (4 * i))) in
+      let expected =
+        "[U+0001; U+0005; U+0009; U+000D; U+0011; U+0015; U+0019; U+001D; U+0021; "
+        ^ "U+0025; U+0029; U+002D]"
+      in
+      Alcotest.(check string) "to_hex_string" expected (Ucharset.to_hex_string wide);
+      (* the printers keep their break hints; only the string forms are unbounded *)
+      is_true
+        "pp_hex still wraps at the formatter margin"
+        (String.contains (Format.asprintf "%a" Ucharset.pp_hex wide) '\n'))
   ; case "printing leaves the shared formatter alone" (fun () ->
       Format.fprintf Format.str_formatter "SENTINEL";
       ignore (Format.asprintf "%a" Ucharset.pp Ucharset.all);
@@ -1449,9 +1473,9 @@ let printing =
       Alcotest.(check string) "untouched" "SENTINEL" (Format.flush_str_formatter ()))
   ]
   @ qc
-      [ (* members render as themselves, so the output is UTF-8; it must still
-           never carry a control character through to the terminal, excepting
-           the newlines Format inserts when wrapping *)
+      [ (* members render as themselves, so the output is UTF-8; it must never
+           carry a control character through to the terminal — including the
+           newline, the string forms being unwrapped *)
         prop "pp_class emits valid UTF-8 free of controls" arb_wide (fun t ->
           let s = Ucharset.to_class_string t in
           let n = String.length s in
@@ -1462,7 +1486,7 @@ let printing =
             Uchar.utf_decode_is_valid d
             &&
             let u = Uchar.to_int (Uchar.utf_decode_uchar d) in
-            (u = 0x0A || u >= 0x20)
+            u >= 0x20
             && u <> 0x7F
             && (not (u >= 0x80 && u <= 0x9F))
             && go (i + Uchar.utf_decode_length d)
@@ -1471,10 +1495,25 @@ let printing =
       ; prop "pp_class is brace-delimited" arb_wide (fun t ->
           let s = Ucharset.to_class_string t in
           String.length s >= 2 && s.[0] = '{' && s.[String.length s - 1] = '}')
-      ; prop "the string forms match their printers" arb_wide (fun t ->
-          Ucharset.to_string t = Format.asprintf "%a" Ucharset.pp t
-          && Ucharset.to_hex_string t = Format.asprintf "%a" Ucharset.pp_hex t
-          && Ucharset.to_class_string t = Format.asprintf "%a" Ucharset.pp_class t)
+      ; prop "the string forms never wrap" arb_spread (fun t ->
+          (* the first conjunct is the generator doing its job: unless the
+             printer itself wraps, the law below is vacuous *)
+          String.contains (Format.asprintf "%a" Ucharset.pp t) '\n'
+          && List.for_all
+               (fun s -> not (String.contains s '\n'))
+               [ Ucharset.to_string t
+               ; Ucharset.to_hex_string t
+               ; Ucharset.to_class_string t
+               ])
+      ; prop "the string forms match their printers, unwrapped" arb_spread (fun t ->
+          (* every break in these [hov 1] boxes is a newline plus one space of
+             indent, standing in for the space the hint would have printed, so
+             dropping the newlines recovers the unwrapped text *)
+          let joined s = String.concat "" (String.split_on_char '\n' s) in
+          Ucharset.to_string t = joined (Format.asprintf "%a" Ucharset.pp t)
+          && Ucharset.to_hex_string t = joined (Format.asprintf "%a" Ucharset.pp_hex t)
+          && Ucharset.to_class_string t
+             = joined (Format.asprintf "%a" Ucharset.pp_class t))
       ]
 ;;
 
