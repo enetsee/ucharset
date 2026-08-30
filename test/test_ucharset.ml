@@ -214,6 +214,27 @@ let constructors =
       raises_invalid "of_list" (fun () -> Ucharset.of_list [ 1; 0xD800 ]);
       raises_invalid "add" (fun () -> Ucharset.add Ucharset.empty 0xD900);
       raises_invalid "remove" (fun () -> Ucharset.remove Ucharset.all 0xD900))
+  ; case "endpoints survive the packed sort key" (fun () ->
+      (* [Builder.build] packs both endpoints of a pair into one int and sorts
+         on the 42-bit key, so a narrower int drops or invents codepoints. The
+         module refuses to load below 63 bits; these are the three cases that
+         come back wrong at 31 and 32 bits. *)
+      is_true "int is wide enough for the key" (Sys.int_size >= 63);
+      Alcotest.check
+        ivals
+        "a pair either side of the 31-bit cutoff"
+        [ 0x100, 0x100; 0x300, 0x300 ]
+        (Ucharset.to_list (Ucharset.of_intervals [ 0x100, 0x100; 0x300, 0x300 ]));
+      Alcotest.check
+        ivals
+        "the widest key the builder can form"
+        [ 0x10FFFF, 0x10FFFF ]
+        (Ucharset.to_list (Ucharset.of_intervals [ 0x10FFFF, 0x10FFFF ]));
+      Alcotest.check
+        ivals
+        "an astral pair sorted against ASCII"
+        [ 0x61, 0x7A; 0x1F600, 0x1F601 ]
+        (Ucharset.to_list (Ucharset.of_intervals [ 0x1F600, 0x1F601; 0x61, 0x7A ])))
   ; case "of_list and of_intervals normalise" (fun () ->
       is_true "of_list []" (Ucharset.is_empty (Ucharset.of_list []));
       Alcotest.check
@@ -312,6 +333,23 @@ let constructors =
                ; (fun () -> Ucharset.remove Ucharset.all cp)
                ; (fun () -> Ucharset.of_list [ cp ])
                ])
+      ; (* [of_intervals] goes through [Builder.build], which sorts on a packed
+           key; [range] and [union] do not pack anything. Two independent
+           constructions of the same set, so a key that wrapped or a sort that
+           mis-ordered would show up here. *)
+        prop3
+          "of_intervals agrees with a union of ranges"
+          (QCheck.pair arb_scalar arb_scalar)
+          (QCheck.pair arb_scalar arb_scalar)
+          (QCheck.pair arb_scalar arb_scalar)
+          (fun (a, b, c) ->
+             let ps = [ a; b; c ] in
+             Ucharset.equal
+               (Ucharset.of_intervals ps)
+               (List.fold_left
+                  (fun acc (lo, hi) -> Ucharset.union acc (Ucharset.range ~lo ~hi))
+                  Ucharset.empty
+                  ps))
       ; prop "of_intervals is canonical" arb_wide is_canonical
       ; prop "of_list round trips through elems" arb_small (fun t ->
           Ucharset.equal (Ucharset.of_list (elems t)) t)

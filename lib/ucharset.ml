@@ -13,6 +13,19 @@ let fail ?fn msg =
   | Some fn -> invalid_arg ("Ucharset." ^ fn ^ ": " ^ msg)
 ;;
 
+(* [Builder.build] packs a (lo, hi) pair into a single int and sorts on the
+   42-bit key, which needs a 63-bit int. OCaml's int is 31 bits on 32-bit native
+   targets and 32 under js_of_ocaml; there the key wraps, the radix sort's digit
+   extraction is on an unspecified shift, and sets come back silently wrong —
+   [of_intervals [ 0x10FFFF, 0x10FFFF ]] yields a millionfold set rather than a
+   singleton. Refuse to run instead. Not an [assert]: [-noassert] would strip it
+   and restore the corruption. *)
+let () =
+  if Sys.int_size < 63
+  then
+    failwith "Ucharset: needs a 64-bit target; int is too narrow for the packed sort key"
+;;
+
 (* -- Distinguished codepoints ---------------------------------------------- *)
 let max_codepoint = 0x10FFFF
 let surrogate_lo = 0xD800

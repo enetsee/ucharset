@@ -41,3 +41,4 @@ build: [
 ]
 dev-repo: "git+https://github.com/enetsee/ucharset.git"
 x-maintenance-intent: ["(latest)"]
+available: arch != "x86_32" & arch != "arm32"
