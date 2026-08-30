@@ -1012,9 +1012,25 @@ let compare_hash =
       is_true
         "every key is found"
         (List.for_all (fun s -> M.find_opt s m = Some (Ucharset.cardinal s)) sets))
+  ; case "hash separates sets the endpoints alone do not" (fun () ->
+      (* [empty] and [singleton 0] have the same endpoint fold — every endpoint
+         is zero — so only the interval count tells them apart. *)
+      let sets =
+        [ Ucharset.empty
+        ; Ucharset.singleton 0
+        ; Ucharset.range ~lo:0 ~hi:1
+        ; Ucharset.of_list [ 0; 2 ]
+        ; Ucharset.all
+        ]
+      in
+      Alcotest.(check int)
+        "distinct sets, distinct hashes"
+        (List.length sets)
+        (List.length (List.sort_uniq Stdlib.compare (List.map Ucharset.hash sets))))
   ]
   @ qc
-      [ prop "equal is reflexive" arb_wide (fun a ->
+      [ prop "hash is non-negative" arb_wide (fun t -> Ucharset.hash t >= 0)
+      ; prop "equal is reflexive" arb_wide (fun a ->
           Ucharset.equal a a && Ucharset.compare a a = 0)
       ; prop "a structural copy compares equal" arb_wide (fun a ->
           (* a copy is not physically equal, so this takes the slow path *)

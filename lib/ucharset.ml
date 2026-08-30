@@ -1488,11 +1488,13 @@ let compare t1 t2 =
   loop 0
 ;;
 
-(* A plain arithmetic mix, matching pic's Dedup. *)
+(* A plain arithmetic mix seeded with the endpoint count so that sets differing 
+   only in length — [empty] and [singleton 0], whose endpoints are all zero, do 
+   not fold to the same value. *)
 let hash t =
   let a = t.ivals in
-  let h = ref 0 in
   let n = Array.length a in
+  let h = ref n in
   for i = 0 to n - 1 do
     h := !h * 31 lxor a.(i) land max_int
   done;
