@@ -1051,8 +1051,8 @@ let compare_hash =
         "every key is found"
         (List.for_all (fun s -> M.find_opt s m = Some (Ucharset.cardinal s)) sets))
   ; case "hash separates sets the endpoints alone do not" (fun () ->
-      (* [empty] and [singleton 0] have the same endpoint fold — every endpoint
-         is zero — so only the interval count tells them apart. *)
+      (* [empty] and [singleton 0] have the same endpoint fold, every endpoint
+         being zero, so only the interval count tells them apart. *)
       let sets =
         [ Ucharset.empty
         ; Ucharset.singleton 0
@@ -1252,6 +1252,40 @@ let partition =
            (Ucharset.Partition.blocks
               (Ucharset.Partition.meet sub Ucharset.Partition.universe))
          = norm [ Ucharset.range ~lo:0 ~hi:10; Ucharset.range ~lo:20 ~hi:30 ]))
+  ; case "meet sizes its scratch space by blocks, not segments" (fun () ->
+      (* [meet]'s probe table and [rep] buffer are indexed by block, so cost
+         must not follow the segment count. 10.5 words per segment is the
+         output; sizing either buffer from segments measured 12.5 and 26.5.
+         The count puts [2 * (np + nq)] just past 2^17, the worst case. *)
+      let spread ~off =
+        Ucharset.of_intervals (List.init 16385 (fun i -> off + (i * 3), off + (i * 3)))
+      in
+      let p = Ucharset.Partition.of_set (spread ~off:0)
+      and q = Ucharset.Partition.of_set (spread ~off:1) in
+      let segments =
+        List.fold_left
+          (fun acc b -> acc + List.length (Ucharset.to_list b))
+          0
+          (Ucharset.Partition.blocks p)
+      in
+      let before = Gc.allocated_bytes () in
+      let m = Ucharset.Partition.meet p q in
+      let after = Gc.allocated_bytes () in
+      let per_segment =
+        (after -. before) /. float_of_int (Sys.word_size / 8 * segments)
+      in
+      Alcotest.(check int) "two blocks a side" 2 (Ucharset.Partition.num_blocks p);
+      is_true
+        "the meet stays small"
+        (Ucharset.Partition.num_blocks m
+         <= Ucharset.Partition.num_blocks p * Ucharset.Partition.num_blocks q);
+      is_true
+        (Printf.sprintf
+           "meeting %d segments allocated %.1f words per segment, over the 12 \
+            block-indexed scratch space allows"
+           segments
+           per_segment)
+        (per_segment <= 12.))
   ]
   @ qc
       [ prop
@@ -1300,6 +1334,18 @@ let partition =
              in
              Ucharset.Partition.blocks m = Ucharset.refine p q
              && Ucharset.Partition.num_blocks m = List.length (Ucharset.refine p q))
+      ; prop2
+          (* The bound [meet] sizes its probe table by. Exceed it and the
+             table fills, leaving the probe loop spinning. Tight on
+             generated input, so not vacuous. *)
+          "meet invents no more blocks than its inputs have pairs"
+          arb_partition
+          arb_partition
+          (fun (p, q) ->
+             let p = Ucharset.Partition.of_blocks p
+             and q = Ucharset.Partition.of_blocks q in
+             Ucharset.Partition.num_blocks (Ucharset.Partition.meet p q)
+             <= Ucharset.Partition.num_blocks p * Ucharset.Partition.num_blocks q)
       ; prop "of_blocks numbers its own blocks by least element" arb_partition (fun p ->
           let m = Ucharset.Partition.of_blocks p in
           let reps = Ucharset.Partition.representatives m in
@@ -1512,8 +1558,8 @@ let printing =
   ]
   @ qc
       [ (* members render as themselves, so the output is UTF-8; it must never
-           carry a control character through to the terminal — including the
-           newline, the string forms being unwrapped *)
+           carry a control character through to the terminal, the newline
+           included, the string forms being unwrapped *)
         prop "pp_class emits valid UTF-8 free of controls" arb_wide (fun t ->
           let s = Ucharset.to_class_string t in
           let n = String.length s in

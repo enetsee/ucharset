@@ -16,7 +16,7 @@ let fail ?fn msg =
 (* [Builder.build] packs a (lo, hi) pair into a single int and sorts on the
    42-bit key, which needs a 63-bit int. OCaml's int is 31 bits on 32-bit native
    targets and 32 under js_of_ocaml; there the key wraps, the radix sort's digit
-   extraction is on an unspecified shift, and sets come back silently wrong —
+   extraction is on an unspecified shift, and sets come back silently wrong:
    [of_intervals [ 0x10FFFF, 0x10FFFF ]] yields a millionfold set rather than a
    singleton. Refuse to run instead. Not an [assert]: [-noassert] would strip it
    and restore the corruption. *)
@@ -1122,24 +1122,27 @@ module Partition = struct
     let cap = np + nq in
     let olo = Array.make cap 0
     and ohi = Array.make cap 0
-    and olab = Array.make cap 0
-    and orep = Array.make cap 0 in
+    and olab = Array.make cap 0 in
     let out = ref 0
     and nb = ref 0 in
-    (* Pair (block of [p], block of [q]) -> new block id. There are at
-       most [cap] distinct pairs, one per emitted segment, and the key
-       is already an int -- so an open-addressed table over two
-       preallocated arrays does the job without the bucket array,
-       boxed keys, [Some] allocation and polymorphic hash that
-       [Hashtbl] costs on every [meet]. [-1] marks a free slot;
-       [mask] keeps the load factor at or below 1/2. *)
+    (* Pair (block of [p], block of [q]) -> new block id. The key is a
+       dense row-major index, so the distinct keys number at most
+       [p.nblocks * q.nblocks], and at most [cap], one per emitted
+       segment. The key is already an int, so an open-addressed table
+       over two preallocated arrays does the job without the bucket
+       array, boxed keys, [Some] allocation and polymorphic hash that
+       [Hashtbl] costs on every [meet]. [-1] marks a free slot; [mask]
+       keeps the load factor at or below 1/2. *)
+    let nkeys = min cap (p.nblocks * q.nblocks) in
     let tsize =
-      let rec pow2 k = if k >= cap * 2 then k else pow2 (k * 2) in
+      let rec pow2 k = if k >= nkeys * 2 then k else pow2 (k * 2) in
       pow2 8
     in
     let mask = tsize - 1 in
     let tkey = Array.make tsize (-1)
     and tval = Array.make tsize 0 in
+    (* Indexed by block id, so [nkeys] again, not [cap]. *)
+    let orep = Array.make nkeys 0 in
     let i = ref 0
     and j = ref 0 in
     while !i < np && !j < nq do
@@ -1154,8 +1157,8 @@ module Partition = struct
         let key = (p.lab.(!i) * q.nblocks) + q.lab.(!j) in
         let id =
           (* Knuth multiplicative, then linear probe. The table can
-             never fill: at most [cap] insertions into [2 * cap]
-             slots. *)
+             never fill: at most [nkeys] insertions into at least
+             [2 * nkeys] slots. *)
           let slot = ref (key * 0x27d4_eb2d land max_int land mask) in
           while Array.unsafe_get tkey !slot >= 0 && Array.unsafe_get tkey !slot <> key do
             slot := (!slot + 1) land mask
@@ -1501,9 +1504,9 @@ let compare t1 t2 =
   loop 0
 ;;
 
-(* A plain arithmetic mix seeded with the endpoint count so that sets differing 
-   only in length — [empty] and [singleton 0], whose endpoints are all zero, do 
-   not fold to the same value. *)
+(* A plain arithmetic mix seeded with the endpoint count, so that sets differing
+   only in length do not fold to the same value. [empty] and [singleton 0], whose
+   endpoints are all zero, are the pair that made this necessary. *)
 let hash t =
   let a = t.ivals in
   let n = Array.length a in

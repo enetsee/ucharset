@@ -21,7 +21,7 @@ opam pin add ucharset https://github.com/enetsee/ucharset.git
 
 64-bit only: interval endpoints are packed two to an `int` while sorting, which
 needs a 63-bit `int`. The package is unavailable on 32-bit architectures, and
-raises at load time on any target whose `int` is narrower — js_of_ocaml
+raises at load time on any target whose `int` is narrower, js_of_ocaml
 included.
 
 ## Example
