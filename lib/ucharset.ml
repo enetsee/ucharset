@@ -503,30 +503,6 @@ let remove_range t ~lo ~hi = diff t ~remove:(range ~lo ~hi)
 
 (* -- Relations ------------------------------------------------------------- *)
 
-(* [t] is a subset of [of_] iff every [t] interval is contained in some [of_]
-   interval; since both are canonical, a single forward walk suffices. *)
-let subset t ~of_ =
-  t == of_
-  ||
-  let a = t.ivals
-  and sup = of_.ivals in
-  let n = Array.length a / 2
-  and n_sup = Array.length sup / 2 in
-  let rec loop i i_sup =
-    i >= n
-    || (i_sup < n_sup
-        &&
-        let lo = a.(i * 2)
-        and hi = a.((i * 2) + 1) in
-        let sup_lo = sup.(i_sup * 2)
-        and sup_hi = sup.((i_sup * 2) + 1) in
-        if sup_hi < lo
-        then loop i (i_sup + 1)
-        else sup_lo <= lo && hi <= sup_hi && loop (i + 1) i_sup)
-  in
-  loop 0 0
-;;
-
 let scan_before_gallop = 4
 
 let gallop_hi (a : int array) n i x =
@@ -560,6 +536,39 @@ let gallop_hi (a : int array) n i x =
         if Array.unsafe_get a ((mid * 2) + 1) >= x then hi := mid else lo := mid + 1
       done;
       if Array.unsafe_get a ((!lo * 2) + 1) >= x then !lo else n))
+;;
+
+(* [t] is a subset of [of_] iff every [t] interval is contained in some [of_]
+   interval; since both are canonical, a single forward walk suffices, and the
+   runs of [of_] that end before the current one are skipped rather than
+   stepped over. *)
+let subset t ~of_ =
+  t == of_
+  ||
+  let a = t.ivals
+  and sup = of_.ivals in
+  let n = Array.length a / 2
+  and n_sup = Array.length sup / 2 in
+  let rec loop i i_sup =
+    i >= n
+    || (i_sup < n_sup
+        &&
+        let lo = Array.unsafe_get a (i * 2)
+        and hi = Array.unsafe_get a ((i * 2) + 1) in
+        let sup_lo = Array.unsafe_get sup (i_sup * 2)
+        and sup_hi = Array.unsafe_get sup ((i_sup * 2) + 1) in
+        if sup_hi < lo
+        then (
+          (* The single-step case is taken here, as in [disjoint]. *)
+          let j = i_sup + 1 in
+          loop
+            i
+            (if j < n_sup && Array.unsafe_get sup ((j * 2) + 1) >= lo
+             then j
+             else gallop_hi sup n_sup j lo))
+        else sup_lo <= lo && hi <= sup_hi && loop (i + 1) i_sup)
+  in
+  loop 0 0
 ;;
 
 let disjoint t1 t2 =
