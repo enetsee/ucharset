@@ -130,11 +130,15 @@ end
     many-hundred-interval sets a Unicode property produces. When the test is
     confined to ASCII, [ascii_table] beats both. *)
 module Lookup : sig
-  (** A compiled constant-time membership structure. *)
+  (** A compiled constant-time membership structure, indexed by scalar value.
+      Raw UTF-8 bytes are not scalar values: run those through [ascii_table]
+      below, and bring the decoded scalar here. *)
   type t
 
   val mem : t -> int -> bool
-  val mem_char : t -> char -> bool
+
+  (** [mem_uchar lk u] is [mem lk (Uchar.to_int u)]. *)
+  val mem_uchar : t -> Uchar.t -> bool
 
   (** Footprint of the compiled structure. *)
   val memory_bytes : t -> int
@@ -146,7 +150,7 @@ val to_lookup : t -> Lookup.t
     loop: [tbl.[b] <> '\000'] tests membership of byte [b] directly. Bytes
     [0x80..0xFF] (UTF-8 lead/continuation bytes, not characters) map to [false],
     so the raw input byte indexes the table with no masking; route multi-byte
-    sequences through [Lookup.mem] on the decoded scalar instead. *)
+    sequences through [Lookup.mem_uchar] on the decoded scalar instead. *)
 val ascii_table : t -> string
 
 (** {1 Packed encoding}

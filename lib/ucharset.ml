@@ -1316,7 +1316,7 @@ module Lookup = struct
     byte land (1 lsl (cp land 7)) <> 0
   ;;
 
-  let mem_char lk c = mem lk (Char.code c)
+  let mem_uchar lk u = mem lk (Uchar.to_int u)
   let memory_bytes lk = String.length lk.index + String.length lk.leaves
 end
 

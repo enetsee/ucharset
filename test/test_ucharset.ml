@@ -953,11 +953,17 @@ let lookup =
           ~name:"Lookup.mem agrees with mem everywhere"
           arb_wide
           lookup_agrees
-      ; prop "mem_char agrees with mem" arb_wide (fun t ->
+        (* [Lookup] takes scalar values, not bytes: the byte entry point was
+           removed because [ascii_table]'s reading of a high byte is the
+           opposite one, and the two sat side by side. *)
+      ; prop2 "mem_uchar agrees with mem" arb_wide arb_scalar (fun (t, cp) ->
+          let lk = Ucharset.to_lookup t in
+          Ucharset.Lookup.mem_uchar lk (Uchar.of_int cp) = Ucharset.mem t cp)
+      ; prop "mem_uchar agrees with mem at the boundaries" arb_wide (fun t ->
           let lk = Ucharset.to_lookup t in
           List.for_all
-            (fun c -> Ucharset.Lookup.mem_char lk c = Ucharset.mem t (Char.code c))
-            [ '\000'; 'a'; 'Z'; '\127'; '\128'; '\255' ])
+            (fun cp -> Ucharset.Lookup.mem_uchar lk (Uchar.of_int cp) = Ucharset.mem t cp)
+            [ 0; 0x41; 0x7F; 0x80; 0xFF; 0xD7FF; 0xE000; 0xFFFF; Ucharset.max_codepoint ])
       ]
 ;;
 
