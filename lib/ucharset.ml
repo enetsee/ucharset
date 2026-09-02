@@ -1,9 +1,10 @@
 (* A sorted list of disjoint, non-adjacent inclusive ranges *)
 type t = { ivals : int array } [@@unboxed]
 
-(* [Stdlib.max] is a polymorphic function; at [int] this one compiles to a
-   compare and a branch. *)
+(* [Stdlib.min] and [Stdlib.max] are polymorphic functions; at [int] these
+   compile to a compare and a branch. *)
 let[@inline] max (a : int) b = if a >= b then a else b
+let[@inline] min (a : int) b = if a <= b then a else b
 
 (* Every [Invalid_argument] this module raises is built here, so the library
    name the message carries is written once instead of once per raise site. *)
