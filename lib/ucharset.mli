@@ -163,9 +163,12 @@ val ascii_table : t -> string
     interface; each endpoint of the canonical intervals as 3 big-endian bytes, 6
     bytes per interval. *)
 
-(** [of_packed_string s] decodes a string produced by [to_packed_string]. Raises
-    [Invalid_argument] if [s] is not well-formed canonical data: wrong length,
-    reversed or overlapping intervals, out-of-range or surrogate values. *)
+(** [of_packed_string s] decodes a string produced by [to_packed_string], and
+    accepts exactly what that function emits: a length that is a multiple of
+    six, and intervals with [lo <= hi], in range, clear of the surrogate block,
+    in increasing order and separated by at least one codepoint. Anything else
+    raises [Invalid_argument], adjacent intervals such as [1..10] and [11..20]
+    included, canonical form having written them as one. *)
 val of_packed_string : string -> t
 
 (** [of_packed_string] returning [None] instead of raising, for decoding data
@@ -262,7 +265,9 @@ module Partition : sig
   val universe : t
 
   (** [of_set s] is the partition [{s, comp s}], dropping either if empty; one
-      block when [s] is [empty] or [all], two otherwise. *)
+      block when [s] is [empty] or [all], two otherwise. The two parts cover the
+      codespace between them, so block 0 is the one containing codepoint [0]:
+      [s] itself when [0] is a member of [s], [comp s] otherwise. *)
   val of_set : set -> t
 
   (** [of_blocks bs] is the partition whose blocks are the non-empty elements of

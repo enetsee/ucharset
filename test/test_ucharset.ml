@@ -1108,6 +1108,32 @@ let packed =
           Ucharset.of_packed_string_opt (Ucharset.to_packed_string t) = Some t)
       ; prop "six bytes per interval" arb_wide (fun t ->
           String.length (Ucharset.to_packed_string t) = Ucharset.num_intervals t * 6)
+        (* Acceptance is canonical form and nothing wider. Each step walks the
+           cursor on by [gap + 1], so a gap of zero abuts the interval before
+           and a negative one overlaps it; both must be refused, and accepted
+           data must re-encode to the blob it came from. *)
+      ; prop
+          "accepts exactly the canonical encodings"
+          QCheck.(list_size (Gen.int_range 0 5) (pair (int_range (-2) 3) (int_range 0 3)))
+          (fun steps ->
+             let cur = ref 10 in
+             let ivs =
+               List.map
+                 (fun (gap, len) ->
+                    let lo = !cur + gap + 1 in
+                    cur := lo + len;
+                    lo, !cur)
+                 steps
+             in
+             let rec gapped = function
+               | (_, hi) :: ((lo, _) :: _ as rest) -> lo > hi + 1 && gapped rest
+               | _ -> true
+             in
+             let blob = pack ivs in
+             let canonical = gapped ivs in
+             Ucharset.of_packed_string_opt blob <> None = canonical
+             && ((not canonical)
+                 || Ucharset.to_packed_string (Ucharset.of_packed_string blob) = blob))
       ]
 ;;
 
@@ -1312,7 +1338,20 @@ let partition =
       Alcotest.(check (list int))
         "blocks are numbered by least element, not by position"
         [ 0; 97 ]
-        (Ucharset.Partition.representatives (Ucharset.Partition.of_set c)))
+        (Ucharset.Partition.representatives (Ucharset.Partition.of_set c));
+      (* so which index [s] lands at depends on [s]: block 0 is whichever part
+         holds codepoint 0 *)
+      Alcotest.check
+        cset
+        "block 0 of a set missing 0 is its complement"
+        (Ucharset.comp c)
+        (Ucharset.Partition.block (Ucharset.Partition.of_set c) 0);
+      let z = Ucharset.singleton 0 in
+      Alcotest.check
+        cset
+        "block 0 of a set holding 0 is the set"
+        z
+        (Ucharset.Partition.block (Ucharset.Partition.of_set z) 0))
   ; case "misuse is rejected" (fun () ->
       Alcotest.(check int)
         "empty blocks are dropped"
@@ -1376,7 +1415,17 @@ let partition =
         (per_segment <= 12.))
   ]
   @ qc
-      [ prop
+      [ (* Exactly one of [s] and [comp s] holds codepoint 0, so testing both
+           exercises both branches; [arb_wide] alone would take the second one
+           essentially never, its ranges starting at 0 only by accident. *)
+        prop "of_set leads with the part holding codepoint 0" arb_wide (fun s ->
+          let leads t =
+            Ucharset.equal
+              (Ucharset.Partition.block (Ucharset.Partition.of_set t) 0)
+              (if Ucharset.mem t 0 then t else Ucharset.comp t)
+          in
+          leads s && leads (Ucharset.comp s))
+      ; prop
           "generated partitions really are partitions"
           arb_partition
           is_partition_of_all
