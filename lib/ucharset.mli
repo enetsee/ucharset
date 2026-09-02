@@ -294,9 +294,11 @@ module Partition : sig
       [Invalid_argument] if [i] is out of range. *)
   val representative : t -> int -> int
 
-  (** [block_of p cp] is the index of the block containing [cp], or [-1] if
-      [cp] lies in no block of [p] (which for a partition covering the whole
-      codespace cannot happen). O(log n) in the segment count.
+  (** [block_of_opt p cp] is the index of the block containing [cp], or [None]
+      if [cp] lies in no block of [p] (which for a partition covering the whole
+      codespace cannot happen). Like {!mem}, it takes any int and answers, so a
+      surrogate or an out-of-range value is [None] rather than an error.
+      O(log n) in the segment count.
 
       This is the inverse of {!representative} and the lookup a
       derivative-based construction wants once it has a partition in hand: it
@@ -304,7 +306,7 @@ module Partition : sig
       set. Searching {!representatives} does not answer it -- blocks are
       unions of intervals and interleave, so a block's least element says
       nothing about where its later intervals fall. *)
-  val block_of : t -> int -> int
+  val block_of_opt : t -> int -> int option
 end
 
 (** [refine p q] is the common refinement of two partitions given as lists of
