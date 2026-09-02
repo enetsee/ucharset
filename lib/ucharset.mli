@@ -117,18 +117,20 @@ end
 (** {1 Compiled lookup}
 
     [Lookup] compiles a set once into a two-level bitmap trie whose membership
-    test is two dependent loads and a mask: branch-free, and O(1) in the number
-    of intervals. [mem] on the interval form is a binary search, so its cost
-    grows with the set while [Lookup.mem]'s does not. The compiled form is
-    derived and immutable; the interval set remains what you do algebra on.
+    test is two dependent loads and a mask behind one bounds test, and O(1) in
+    the number of intervals. [mem] on the interval form is a binary search, so
+    its cost grows with the set while [Lookup.mem]'s does not. The compiled
+    form is derived and immutable; the interval set remains what you do algebra
+    on.
 
     Against [mem] over a uniform stream of scalar values, [Lookup.mem] is
     roughly 2x faster on a set of a few intervals, ~5x at several dozen and ~7x
-    at a thousand. Index and leaf pool both scale with the set rather than the
-    codespace, so the footprint runs from tens of bytes for a set confined to
-    Latin-1, through ~2 KB at several dozen intervals, to ~7 KB for the
-    many-hundred-interval sets a Unicode property produces. When the test is
-    confined to ASCII, [ascii_table] beats both. *)
+    at a thousand. Only the leaf pool scales with the set. The index is one
+    byte per 256 codepoints up to the largest member, two bytes once the set
+    needs more than 256 distinct leaves, so a set holding [max_codepoint] pays
+    4352 bytes of index (8704 wide) whatever its cardinality: [a-z] compiles to
+    33 bytes, [a-z] with [U+10FFFF] added to 4448. When the test is confined to
+    ASCII, [ascii_table] beats both. *)
 module Lookup : sig
   (** A compiled constant-time membership structure, indexed by scalar value.
       Raw UTF-8 bytes are not scalar values: run those through [ascii_table]

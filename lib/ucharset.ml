@@ -1294,12 +1294,12 @@ let refine_all ps =
    The codespace splits into 4352 pages of 256 codepoints, each page's
    membership a 32-byte bitmap. Real sets are clumpy, most pages being
    all-zero, all-one or repeats, so pages map through an id in [index] into a
-   pool of distinct leaves. Two things keep that index proportional to the set
-   rather than to the codespace: pages above the largest member are not stored,
-   and the id is a single byte until the set needs more than 256 distinct
-   leaves. A set confined to Latin-1 costs one page of index and two leaves.
+   pool of distinct leaves. The pool scales with the set, the index with the
+   largest member: pages above it are not stored, at one byte per page until
+   the set needs more than 256 distinct leaves. A set confined to Latin-1 costs
+   one page of index and two leaves; one astral member costs all 4352 pages.
 
-   [mem] is two dependent loads and a mask, with no data-dependent branches. *)
+   [mem] is two dependent loads and a mask behind the [page < pages] test. *)
 module Lookup = struct
   type t =
     { index : string (* leaf id per page: one byte, or two big-endian if [wide] *)

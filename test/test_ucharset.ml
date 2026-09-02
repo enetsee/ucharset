@@ -956,16 +956,22 @@ let lookup =
       List.iter
         (fun cp -> is_false (string_of_int cp) (Ucharset.Lookup.mem lk cp))
         [ -1; -1000; min_int; 0x110000; 0x200000; max_int ])
-  ; case "footprint scales with the set, not the codespace" (fun () ->
+  ; (* The leaf pool scales with the set, but the index scales with the largest
+       member, so one astral codepoint costs the whole index however small the
+       set is. Documented figures, pinned here. *)
+    case "the index scales with the largest member, the pool with the set" (fun () ->
+      let bytes t = Ucharset.Lookup.memory_bytes (Ucharset.to_lookup t) in
+      Alcotest.(check int) "empty" 0 (bytes Ucharset.empty);
+      let az = Ucharset.range_char ~lo:'a' ~hi:'z' in
+      Alcotest.(check int) "a-z: one page of index, one leaf" 33 (bytes az);
       Alcotest.(check int)
-        "empty"
-        0
-        (Ucharset.Lookup.memory_bytes (Ucharset.to_lookup Ucharset.empty));
-      is_true
-        "a Latin-1 set stays tiny"
-        (Ucharset.Lookup.memory_bytes
-           (Ucharset.to_lookup (Ucharset.range ~lo:0x41 ~hi:0x5A))
-         < 256))
+        "a-z with U+10FFFF added"
+        4448
+        (bytes (Ucharset.add az Ucharset.max_codepoint));
+      Alcotest.(check int)
+        "one astral member costs what [all] costs"
+        (bytes Ucharset.all)
+        (bytes (Ucharset.singleton Ucharset.max_codepoint)))
   ; (* The index stores one byte per page up to 256 distinct leaves and two
        bytes beyond, so 257 is the exact value at which the switch has to
        happen; at 256 the largest id is 255 and still fits in a byte, at 257 it
@@ -1011,6 +1017,21 @@ let lookup =
           List.for_all
             (fun cp -> Ucharset.Lookup.mem_uchar lk (Uchar.of_int cp) = Ucharset.mem t cp)
             [ 0; 0x41; 0x7F; 0x80; 0xFF; 0xD7FF; 0xE000; 0xFFFF; Ucharset.max_codepoint ])
+        (* The documented footprint: one index byte per page up to the largest
+           member, plus a leaf per distinct page. A singleton pins it exactly,
+           its pages being the one holding [cp] and the all-zero rest. *)
+      ; prop "a singleton costs its index plus its leaves" arb_scalar (fun cp ->
+          let leaves = if cp < 0x100 then 32 else 64 in
+          Ucharset.Lookup.memory_bytes (Ucharset.to_lookup (Ucharset.singleton cp))
+          = (cp lsr 8) + 1 + leaves)
+      ; prop "the index covers every page up to the largest member" arb_wide (fun t ->
+          let b = Ucharset.Lookup.memory_bytes (Ucharset.to_lookup t) in
+          match Ucharset.max_elt_opt t with
+          | None -> b = 0
+          | Some m ->
+            let pages = (m lsr 8) + 1 in
+            (* at least one leaf, at most one distinct leaf per page *)
+            b >= pages + 32 && b <= 34 * pages)
       ]
 ;;
 
