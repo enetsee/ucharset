@@ -360,8 +360,55 @@ let constructors =
 
 (* -- Queries --------------------------------------------------------------- *)
 
+(* Words allocated by [f], per call over [n] calls. Exact: these are array and
+   option allocations, nothing float or GC-dependent. *)
+let words_per_call n f =
+  let before = Gc.allocated_bytes () in
+  for i = 0 to n - 1 do
+    ignore (Sys.opaque_identity (f i))
+  done;
+  let after = Gc.allocated_bytes () in
+  (after -. before) /. float_of_int (Sys.word_size / 8 * n)
+;;
+
 let queries =
-  [ case "is_all" (fun () ->
+  [ (* A local [let rec] closing over the arrays allocates its closure on every
+       call, which is invisible in the answers and cost [mem] six words a call
+       until the search loops were written with refs. *)
+    case "the search loops allocate nothing" (fun () ->
+      let n = 2000 in
+      let s =
+        Ucharset.of_intervals
+          (List.init n (fun i -> 0x10000 + (i * 3), 0x10000 + (i * 3) + 1))
+      in
+      let small =
+        Ucharset.of_intervals
+          (List.init 20 (fun i -> 0x10000 + (i * 3), 0x10000 + (i * 3) + 1))
+      in
+      let s' =
+        Ucharset.of_intervals
+          (List.init n (fun i -> 0x10000 + (i * 3), 0x10000 + (i * 3) + 1))
+      in
+      let p = Ucharset.Partition.of_set s in
+      (* Not exactly zero: [Gc.allocated_bytes] boxes the float it returns, two
+         words spread over the run. Six words a call was the defect. *)
+      let free name f =
+        let w = words_per_call 1000 f in
+        is_true (Printf.sprintf "%s allocates %.3f words per call" name w) (w < 0.5)
+      in
+      free "mem" (fun i -> Ucharset.mem s (0x10000 + (i * 7)));
+      free "subset" (fun _ -> Ucharset.subset small ~of_:s);
+      free "disjoint" (fun _ -> Ucharset.disjoint small s);
+      free "equal" (fun _ -> Ucharset.equal s s');
+      free "compare" (fun _ -> Ucharset.compare s s');
+      free "hash" (fun _ -> Ucharset.hash s);
+      (* [block_of_opt] pays for its [Some] and nothing else. *)
+      let w =
+        words_per_call 1000 (fun i ->
+          Ucharset.Partition.block_of_opt p (0x10000 + (i * 3)))
+      in
+      is_true (Printf.sprintf "block_of_opt allocates %.3f words per call" w) (w < 2.5))
+  ; case "is_all" (fun () ->
       is_true "all" (Ucharset.is_all Ucharset.all);
       is_true "comp empty" (Ucharset.is_all (Ucharset.comp Ucharset.empty));
       is_false "empty" (Ucharset.is_all Ucharset.empty);

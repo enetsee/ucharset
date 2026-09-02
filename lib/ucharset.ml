@@ -97,22 +97,29 @@ let range_uchar ~lo ~hi = range ~lo:(Uchar.to_int lo) ~hi:(Uchar.to_int hi)
 
 (* -- Membership ------------------------------------------------------------ *)
 
-(* Binary search for the interval that could contain [cp]. Unsafe accesses:
-   [mid] lies in [lo_idx, hi_idx), within [0, num_intervals t), so [mid * 2 + 1]
-   is in bounds. *)
+(* Binary search for the interval that could contain [cp]. A loop over refs
+   rather than a local recursion: without flambda the latter allocates its
+   closure on every call, and this is the most-called function in the library.
+   Unsafe accesses: [mid] lies in [lo_idx, hi_idx), within
+   [0, num_intervals t), so [mid * 2 + 1] is in bounds. *)
 let mem t cp =
   let a = t.ivals in
-  let rec go lo_idx hi_idx =
-    lo_idx < hi_idx
-    &&
-    let mid = (lo_idx + hi_idx) / 2 in
+  let lo_idx = ref 0
+  and hi_idx = ref (Array.length a / 2)
+  and found = ref false in
+  while !lo_idx < !hi_idx do
+    let mid = (!lo_idx + !hi_idx) / 2 in
     if cp < Array.unsafe_get a (mid * 2)
-    then go lo_idx mid
+    then hi_idx := mid
     else if cp > Array.unsafe_get a ((mid * 2) + 1)
-    then go (mid + 1) hi_idx
-    else true
-  in
-  go 0 (Array.length a / 2)
+    then lo_idx := mid + 1
+    else (
+      (* A hit ends the search by emptying the window, so the loop keeps the
+         one test per iteration the recursion had. *)
+      found := true;
+      lo_idx := !hi_idx)
+  done;
+  !found
 ;;
 
 let mem_char t c = mem t (Char.code c)
@@ -550,26 +557,29 @@ let subset t ~of_ =
   and sup = of_.ivals in
   let n = Array.length a / 2
   and n_sup = Array.length sup / 2 in
-  let rec loop i i_sup =
-    i >= n
-    || (i_sup < n_sup
-        &&
-        let lo = Array.unsafe_get a (i * 2)
-        and hi = Array.unsafe_get a ((i * 2) + 1) in
-        let sup_lo = Array.unsafe_get sup (i_sup * 2)
-        and sup_hi = Array.unsafe_get sup ((i_sup * 2) + 1) in
-        if sup_hi < lo
-        then (
-          (* The single-step case is taken here, as in [disjoint]. *)
-          let j = i_sup + 1 in
-          loop
-            i
-            (if j < n_sup && Array.unsafe_get sup ((j * 2) + 1) >= lo
-             then j
-             else gallop_hi sup n_sup j lo))
-        else sup_lo <= lo && hi <= sup_hi && loop (i + 1) i_sup)
-  in
-  loop 0 0
+  let i = ref 0
+  and i_sup = ref 0 in
+  (* Exhausting [of_] is failure and exhausting [t] is success, so a run of [t]
+     with no container ends the walk by setting [i_sup], and the two loop tests
+     are the only ones. *)
+  while !i < n && !i_sup < n_sup do
+    let lo = Array.unsafe_get a (!i * 2)
+    and hi = Array.unsafe_get a ((!i * 2) + 1) in
+    let sup_lo = Array.unsafe_get sup (!i_sup * 2)
+    and sup_hi = Array.unsafe_get sup ((!i_sup * 2) + 1) in
+    if sup_hi < lo
+    then (
+      (* The single-step case is taken here, as in [disjoint]. *)
+      let j = !i_sup + 1 in
+      i_sup
+      := if j < n_sup && Array.unsafe_get sup ((j * 2) + 1) >= lo
+         then j
+         else gallop_hi sup n_sup j lo)
+    else if sup_lo <= lo && hi <= sup_hi
+    then incr i
+    else i_sup := n_sup
+  done;
+  !i >= n
 ;;
 
 let disjoint t1 t2 =
@@ -1054,18 +1064,22 @@ module Partition = struct
   let block_of_opt p cp =
     let lo = p.lo
     and hi = p.hi in
-    let rec go a b =
-      if a >= b
-      then None
+    let a = ref 0
+    and b = ref (Array.length lo)
+    and found = ref false
+    and blk = ref 0 in
+    while !a < !b do
+      let mid = (!a + !b) / 2 in
+      if cp < Array.unsafe_get lo mid
+      then b := mid
+      else if cp > Array.unsafe_get hi mid
+      then a := mid + 1
       else (
-        let mid = (a + b) / 2 in
-        if cp < Array.unsafe_get lo mid
-        then go a mid
-        else if cp > Array.unsafe_get hi mid
-        then go (mid + 1) b
-        else Some (Array.unsafe_get p.lab mid))
-    in
-    go 0 (Array.length lo)
+        found := true;
+        blk := Array.unsafe_get p.lab mid;
+        a := !b)
+    done;
+    if !found then Some !blk else None
   ;;
 
   (* Empty blocks are dropped, so [nblocks] counts inhabited blocks and every
@@ -1484,6 +1498,7 @@ let of_packed_string s =
 
 (* -- Comparison and hashing ------------------------------------------------ *)
 
+(* Equal lengths make the unsafe reads in bounds. *)
 let equal t1 t2 =
   t1 == t2
   ||
@@ -1492,26 +1507,32 @@ let equal t1 t2 =
   let n = Array.length a1 in
   n = Array.length a2
   &&
-  let rec loop i = i >= n || (a1.(i) = a2.(i) && loop (i + 1)) in
-  loop 0
+  let i = ref 0 in
+  while !i < n && Array.unsafe_get a1 !i = Array.unsafe_get a2 !i do
+    incr i
+  done;
+  !i >= n
 ;;
 
 (* Endpoints are bounded by [max_codepoint], so the subtraction cannot
-   overflow. *)
+   overflow. [n] is the shorter length, so both reads are in bounds. *)
 let compare t1 t2 =
   let a1 = t1.ivals
   and a2 = t2.ivals in
   let n1 = Array.length a1
   and n2 = Array.length a2 in
   let n = if n1 < n2 then n1 else n2 in
-  let rec loop i =
-    if i >= n
-    then n1 - n2
-    else (
-      let c = a1.(i) - a2.(i) in
-      if c <> 0 then c else loop (i + 1))
-  in
-  loop 0
+  let i = ref 0
+  and c = ref 0 in
+  while !i < n do
+    let d = Array.unsafe_get a1 !i - Array.unsafe_get a2 !i in
+    if d <> 0
+    then (
+      c := d;
+      i := n)
+    else incr i
+  done;
+  if !c <> 0 then !c else n1 - n2
 ;;
 
 (* A plain arithmetic mix seeded with the endpoint count, so that sets differing
