@@ -1142,6 +1142,11 @@ let packed =
           Ucharset.of_packed_string_opt (Ucharset.to_packed_string t) = Some t)
       ; prop "six bytes per interval" arb_wide (fun t ->
           String.length (Ucharset.to_packed_string t) = Ucharset.num_intervals t * 6)
+        (* The documented layout, against an independent encoder. Round trips
+           pin the two halves to each other, not to the format, so a byte order
+           flipped on both sides would survive them. *)
+      ; prop "encodes lo before hi, big-endian, lowest interval first" arb_wide (fun t ->
+          Ucharset.to_packed_string t = pack (Ucharset.to_list t))
         (* Acceptance is canonical form and nothing wider. Each step walks the
            cursor on by [gap + 1], so a gap of zero abuts the interval before
            and a negative one overlaps it; both must be refused, and accepted

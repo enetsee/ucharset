@@ -155,6 +155,9 @@ module Lookup : sig
       below, and bring the decoded scalar here. *)
   type t
 
+  (** [mem lk cp] is [true] iff [cp] is in the set [lk] was compiled from.
+      O(1) in the interval count, and like the interval-set [mem] it takes any
+      int. *)
   val mem : t -> int -> bool
 
   (** [mem_uchar lk u] is [mem lk (Uchar.to_int u)]. *)
@@ -164,6 +167,9 @@ module Lookup : sig
   val memory_bytes : t -> int
 end
 
+(** Compile [t] into a {!Lookup.t}. Costs a pass over the pages up to the
+    largest member, so compile once and reuse; pages that come out identical
+    share one leaf, which is what keeps the pool proportional to the set. *)
 val to_lookup : t -> Lookup.t
 
 (** [ascii_table s] is a 256-byte table for the ASCII fast path of a UTF-8 inner
@@ -193,11 +199,17 @@ val of_packed_string : string -> t
     from an untrusted source. *)
 val of_packed_string_opt : string -> t option
 
+(** [to_packed_string t] encodes the canonical intervals of [t], lowest first,
+    each endpoint as three big-endian bytes and [lo] before [hi], so the result
+    is [6 * num_intervals t] bytes. Inverse of {!of_packed_string}. *)
 val to_packed_string : t -> string
 
 (** {1 Set operations} *)
 
+(** [union t1 t2] is the set of scalar values in either. *)
 val union : t -> t -> t
+
+(** [inter t1 t2] is the set of scalar values in both. *)
 val inter : t -> t -> t
 
 (** [diff t ~remove] is the set of scalar values in [t] but not in [remove]. *)
@@ -301,6 +313,7 @@ module Partition : sig
       the empty list. *)
   val meet_all : t list -> t
 
+  (** Number of blocks in the partition. O(1). *)
   val num_blocks : t -> int
 
   (** The blocks, in index order. This is where block sets get built, so prefer
@@ -328,9 +341,9 @@ module Partition : sig
       This is the inverse of {!representative} and the lookup a
       derivative-based construction wants once it has a partition in hand: it
       answers "which block is this character in" without building any block
-      set. Searching {!representatives} does not answer it -- blocks are
-      unions of intervals and interleave, so a block's least element says
-      nothing about where its later intervals fall. *)
+      set. Searching {!representatives} does not answer it: blocks are unions
+      of intervals and interleave, so a block's least element says nothing
+      about where its later intervals fall. *)
   val block_of_opt : t -> int -> int option
 end
 
@@ -348,6 +361,7 @@ val refine_all : t list list -> t list
 
 (** {1 Queries} *)
 
+(** [is_empty t] is [true] iff [t] contains no codepoints. O(1). *)
 val is_empty : t -> bool
 
 (** [is_singleton t] is [true] iff [t] contains exactly one codepoint. O(1). *)
@@ -443,12 +457,18 @@ val to_list : t -> (int * int) list
     functors require. [equal t1 t2] iff [compare t1 t2 = 0], and equal sets hash
     identically, the internal representation being canonical. *)
 
+(** [equal t1 t2] is [true] iff the two sets have the same members. The
+    representation is canonical, so this compares the interval arrays: O(1) on
+    physically equal sets and on sets of differing interval count. *)
 val equal : t -> t -> bool
 
 (** A total order on sets. The order is representation-based (lexicographic over
     interval endpoints), rather than any set-theoretic order. *)
 val compare : t -> t -> int
 
+(** A non-negative hash consistent with {!equal}, mixing the interval count
+    and every endpoint. The values themselves are an implementation detail and
+    may change between releases, so do not persist them. *)
 val hash : t -> int
 
 (** {1 Printing} *)

@@ -1059,8 +1059,8 @@ module Partition = struct
 
   (* Segments are disjoint and ascending in [lo], so the segment holding
      [cp] is one binary search; its [lab] is the block. Note that the
-     blocks themselves are not intervals -- they interleave -- so this
-     cannot be answered by searching [rep]. *)
+     blocks themselves are not intervals: they interleave, so this cannot be
+     answered by searching [rep]. *)
   let block_of_opt p cp =
     let lo = p.lo
     and hi = p.hi in
