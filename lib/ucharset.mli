@@ -1,5 +1,23 @@
 (** Character classes for Unicode-aware lexers and regex engines: a faster,
-    smaller [Set.Make (Uchar)] *)
+    smaller [Set.Make (Uchar)].
+
+    Elements are Unicode scalar values in the sense of [Uchar.t]: codepoints
+    [0 .. max_codepoint] excluding the surrogate block [0xD800 .. 0xDFFF],
+    which exists only as a UTF-16 encoding mechanism and cannot occur in
+    well-formed text. Noncharacters such as [U+FFFE] are ordinary scalar values
+    and are included.
+
+    Every function taking a raw [int] codepoint to build or update a set
+    validates it, raising [Invalid_argument] on a surrogate or on a value
+    outside [0 .. max_codepoint]. {!add}, {!remove}, {!add_range} and
+    {!remove_range} validate before the membership test, so [remove t 0xD800]
+    raises rather than returning [t] unchanged. The [_char] and [_uchar]
+    families cannot raise, their arguments being scalar values already.
+
+    Queries go the other way: {!mem}, {!next_elt_opt}, {!prev_elt_opt},
+    {!Lookup.mem} and {!Partition.block_of_opt} take any [int] and answer,
+    reading a surrogate or an out-of-range value as one the set does not
+    contain. *)
 type t
 
 (** Largest valid codepoint, [0x10FFFF]. *)
@@ -28,7 +46,9 @@ val singleton_uchar : Uchar.t -> t
     empty if [lo > hi]. Both bounds are validated (and must not be surrogates)
     even when the result is empty. A range straddling the surrogate block is
     split around it, so [range ~lo:0xD000 ~hi:0xF000] contains
-    [0xD000 .. 0xD7FF] and [0xE000 .. 0xF000]. *)
+    [0xD000 .. 0xD7FF] and [0xE000 .. 0xF000]. An endpoint landing inside the
+    block raises, so [range ~lo:0xD000 ~hi:0xD900] is an error and a caller
+    slicing arbitrary spans has to snap its own bounds clear. *)
 val range : lo:int -> hi:int -> t
 
 (** [range_char ~lo ~hi] is [range ~lo:(Char.code lo) ~hi:(Char.code hi)]. *)
@@ -47,8 +67,7 @@ val of_char_list : char list -> t
 (** [of_uchar_list us] is [of_list (List.map Uchar.to_int us)]. O(n log n). *)
 val of_uchar_list : Uchar.t list -> t
 
-(** [of_seq s] is the set of the codepoints of [s]. Validates like [of_list];
-    O(n log n). *)
+(** [of_seq s] is the set of the codepoints of [s]. O(n log n). *)
 val of_seq : int Seq.t -> t
 
 (** [of_utf_8_string s] is the set of scalar values occurring in [s]. Malformed
@@ -85,8 +104,7 @@ module Builder : sig
       regardless. *)
   val create : ?size_hint:int -> unit -> t
 
-  (** [add b cp] adds the single scalar value [cp]. Validates like [singleton].
-  *)
+  (** [add b cp] adds the single scalar value [cp]. *)
   val add : t -> int -> unit
 
   (** [add_uchar b u] adds one scalar value; cannot raise. *)

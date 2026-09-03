@@ -327,11 +327,22 @@ let constructors =
                   match outcome f with
                   | None -> is_scalar cp
                   | Some msg -> (not (is_scalar cp)) && names_library msg)
-               [ (fun () -> Ucharset.singleton cp)
-               ; (fun () -> Ucharset.range ~lo:cp ~hi:cp)
-               ; (fun () -> Ucharset.add Ucharset.empty cp)
-               ; (fun () -> Ucharset.remove Ucharset.all cp)
-               ; (fun () -> Ucharset.of_list [ cp ])
+               [ (fun () -> ignore (Ucharset.singleton cp))
+               ; (fun () -> ignore (Ucharset.range ~lo:cp ~hi:cp))
+               ; (fun () -> ignore (Ucharset.add Ucharset.empty cp))
+               ; (fun () -> ignore (Ucharset.remove Ucharset.all cp))
+               ; (fun () -> ignore (Ucharset.add_range Ucharset.empty ~lo:cp ~hi:cp))
+               ; (fun () -> ignore (Ucharset.remove_range Ucharset.all ~lo:cp ~hi:cp))
+               ; (fun () -> ignore (Ucharset.of_list [ cp ]))
+               ; (fun () -> ignore (Ucharset.of_seq (List.to_seq [ cp ])))
+               ; (fun () -> ignore (Ucharset.of_intervals [ cp, cp ]))
+               ; (fun () -> ignore (Ucharset.map (fun _ -> cp) (Ucharset.singleton 65)))
+               ; (fun () -> Ucharset.Builder.add (Ucharset.Builder.create ()) cp)
+               ; (fun () ->
+                   Ucharset.Builder.add_interval
+                     (Ucharset.Builder.create ())
+                     ~lo:cp
+                     ~hi:cp)
                ])
       ; (* [of_intervals] goes through [Builder.build], which sorts on a packed
            key; [range] and [union] do not pack anything. Two independent
@@ -370,6 +381,9 @@ let words_per_call n f =
   let after = Gc.allocated_bytes () in
   (after -. before) /. float_of_int (Sys.word_size / 8 * n)
 ;;
+
+(* Compiled once: the query property below only ever asks it about [all]. *)
+let all_lookup = Ucharset.to_lookup Ucharset.all
 
 let queries =
   [ (* A local [let rec] closing over the arrays allocates its closure on every
@@ -541,6 +555,26 @@ let queries =
              match List.rev (List.filter (fun x -> x < cp) (elems t)) with
              | [] -> None
              | x :: _ -> Some x)
+      ; (* The other half of the documented contract: where the constructors
+           raise on a non-scalar, the queries read it as a value the set does
+           not contain, which is why [remove t 0xD800] raising is worth saying
+           out loud. *)
+        prop
+          "queries answer for any int"
+          QCheck.(int_range (-0x1000) (Ucharset.max_codepoint + 0x1000))
+          (fun cp ->
+             let scalar = is_scalar cp in
+             Ucharset.mem Ucharset.all cp = scalar
+             && Ucharset.Lookup.mem all_lookup cp = scalar
+             && (Ucharset.Partition.block_of_opt Ucharset.Partition.universe cp
+                 = if scalar then Some 0 else None)
+             && (match Ucharset.next_elt_opt Ucharset.all cp with
+                 | None -> cp >= Ucharset.max_codepoint
+                 | Some x -> is_scalar x && x > cp)
+             &&
+             match Ucharset.prev_elt_opt Ucharset.all cp with
+             | None -> cp <= 0
+             | Some x -> is_scalar x && x < cp)
       ]
 ;;
 
