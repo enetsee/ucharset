@@ -398,12 +398,21 @@ let constructors =
 (* -- Queries --------------------------------------------------------------- *)
 
 (* Words allocated by [f], per call over [n] calls. Exact: these are array and
-   option allocations, nothing float or GC-dependent. *)
+   option allocations, nothing float or GC-dependent.
+
+   The [Gc.minor] calls are what make it portable. On OCaml 5.1 the young words
+   are not in [allocated_bytes] until a minor collection flushes them, so a
+   plain difference reports an eighth of a small allocation and then charges the
+   backlog to whoever measures next: [Array.make 100 0] reads 12.7 words there
+   against 101.6 on 4.14 and 5.4. Collecting at both ends reports the same
+   figure on all three. *)
 let words_per_call n f =
+  Gc.minor ();
   let before = Gc.allocated_bytes () in
   for i = 0 to n - 1 do
     ignore (Sys.opaque_identity (f i))
   done;
+  Gc.minor ();
   let after = Gc.allocated_bytes () in
   (after -. before) /. float_of_int (Sys.word_size / 8 * n)
 ;;
@@ -1565,11 +1574,11 @@ let partition =
           0
           (Ucharset.Partition.blocks p)
       in
-      let before = Gc.allocated_bytes () in
       let m = Ucharset.Partition.meet p q in
-      let after = Gc.allocated_bytes () in
+      (* through [words_per_call], which collects before it reads; a raw
+         [Gc.allocated_bytes] pair reported 15.75 here on OCaml 5.1 *)
       let per_segment =
-        (after -. before) /. float_of_int (Sys.word_size / 8 * segments)
+        words_per_call 1 (fun _ -> Ucharset.Partition.meet p q) /. float_of_int segments
       in
       Alcotest.(check int) "two blocks a side" 2 (Ucharset.Partition.num_blocks p);
       is_true
