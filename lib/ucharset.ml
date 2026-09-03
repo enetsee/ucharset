@@ -276,7 +276,7 @@ let to_seq t =
   from 0
 ;;
 
-let to_list t =
+let to_intervals t =
   let a = t.ivals in
   let acc = ref [] in
   let n = Array.length a / 2 in
@@ -491,6 +491,11 @@ let diff t ~remove =
 let comp t = diff all ~remove:t
 
 (* Composed from the two differences; three allocations, still O(n + m). *)
+(* Read a canonical array as the points where membership toggles: [lo] turns a
+   run on and [hi + 1] turns it off, strictly increasing. Membership is then the
+   parity of the toggles at or below a codepoint, so the symmetric difference is
+   the merge of the two toggle sequences with equal pairs cancelling. One sweep,
+   one array, and adjacent runs fall out already merged. *)
 let xor t1 t2 =
   if t1 == t2
   then empty
@@ -498,7 +503,54 @@ let xor t1 t2 =
   then t2
   else if is_empty t2
   then t1
-  else union (diff t1 ~remove:t2) (diff t2 ~remove:t1)
+  else (
+    let a1 = t1.ivals
+    and a2 = t2.ivals in
+    let n1 = Array.length a1
+    and n2 = Array.length a2 in
+    let toggle a i = Array.unsafe_get a i + (i land 1) in
+    let buf = Array.make (n1 + n2) 0 in
+    let i = ref 0
+    and j = ref 0
+    and len = ref 0 in
+    while !i < n1 || !j < n2 do
+      if !j >= n2
+      then (
+        Array.unsafe_set buf !len (toggle a1 !i);
+        incr len;
+        incr i)
+      else if !i >= n1
+      then (
+        Array.unsafe_set buf !len (toggle a2 !j);
+        incr len;
+        incr j)
+      else (
+        let x = toggle a1 !i
+        and y = toggle a2 !j in
+        if x < y
+        then (
+          Array.unsafe_set buf !len x;
+          incr len;
+          incr i)
+        else if y < x
+        then (
+          Array.unsafe_set buf !len y;
+          incr len;
+          incr j)
+        else (
+          incr i;
+          incr j))
+    done;
+    if !len = 0
+    then empty
+    else (
+      (* back from toggles to inclusive pairs *)
+      let k = ref 1 in
+      while !k < !len do
+        Array.unsafe_set buf !k (Array.unsafe_get buf !k - 1);
+        k := !k + 2
+      done;
+      { ivals = trim buf !len }))
 ;;
 
 let remove t cp =
@@ -517,7 +569,7 @@ let gallop_hi (a : int array) n i x =
   if i >= n
   then n
   else if Array.unsafe_get a ((i * 2) + 1) >= x
-  then i (* the single-step case, which finely interleaved runs stay in *)
+  then i (* unreachable from the three callers: each tests this inline first *)
   else (
     let j = ref (i + 1)
     and steps = ref 1 in
@@ -896,6 +948,7 @@ let union_list ts =
   match ts with
   | [] -> empty
   | [ t ] -> t
+  | [ t1; t2 ] -> union t1 t2
   | _ ->
     let b =
       Builder.create
@@ -927,21 +980,23 @@ let inter_list ts =
       let cur = Array.make k 0 in
       let running = ref true in
       while !running do
+        (* Liveness and the overlap come out of the same pass; advancing needs
+           the smallest [hi] across all inputs, so that stays a second one. *)
         let live = ref true in
+        let lo = ref 0
+        and hi = ref max_codepoint in
         for x = 0 to k - 1 do
-          if cur.(x) * 2 >= Array.length ts.(x).ivals then live := false
+          let a = ts.(x).ivals in
+          let c = cur.(x) in
+          if c * 2 >= Array.length a
+          then live := false
+          else (
+            if a.(c * 2) > !lo then lo := a.(c * 2);
+            if a.((c * 2) + 1) < !hi then hi := a.((c * 2) + 1))
         done;
         if not !live
         then running := false
         else (
-          let lo = ref 0
-          and hi = ref max_codepoint in
-          for x = 0 to k - 1 do
-            let a = ts.(x).ivals in
-            let c = cur.(x) in
-            if a.(c * 2) > !lo then lo := a.(c * 2);
-            if a.((c * 2) + 1) < !hi then hi := a.((c * 2) + 1)
-          done;
           if !lo <= !hi
           then (
             Array.unsafe_set buf !len !lo;
@@ -975,8 +1030,10 @@ let filter f t =
   Builder.build b
 ;;
 
+(* One pair per codepoint, so [cardinal] is the exact output size; the interval
+   count sized the builder for the input and grew through every doubling. *)
 let map f t =
-  let b = Builder.create ~size_hint:(num_intervals t) () in
+  let b = Builder.create ~size_hint:(cardinal t) () in
   iter
     (fun cp ->
        let cp' = f cp in
@@ -1216,6 +1273,7 @@ module Partition = struct
     let rec halve = function
       | [] -> universe
       | [ p ] -> p
+      | [ p; q ] -> meet p q
       | ps ->
         (* Each pass reverses; [meet] is commutative up to block
            numbering, and its numbering is canonical, so this is safe. *)
@@ -1442,11 +1500,13 @@ let to_packed_string t =
   Bytes.unsafe_to_string buf
 ;;
 
-(* Packed data claims to be canonical already, so corruption is rejected. *)
-let of_packed_string_opt s =
+(* Packed data claims to be canonical already, so corruption is rejected. One
+   decoder behind both entry points: the format is frozen and a rule that drifted
+   between two copies would split the raising form from the option form. *)
+let decode s =
   let byte_len = String.length s in
   if byte_len mod 6 <> 0
-  then None
+  then Error "length not a multiple of 6"
   else (
     let n = byte_len / 3 in
     let a = Array.make n 0 in
@@ -1467,33 +1527,19 @@ let of_packed_string_opt s =
         || (i > 0 && a.(((i - 1) * 2) + 1) + 1 >= lo)
       then ok := false
     done;
-    if !ok then Some { ivals = a } else None)
+    if !ok then Ok { ivals = a } else Error "malformed data")
+;;
+
+let of_packed_string_opt s =
+  match decode s with
+  | Ok t -> Some t
+  | Error _ -> None
 ;;
 
 let of_packed_string s =
-  let byte_len = String.length s in
-  if byte_len mod 6 <> 0 then fail ~fn:"of_packed_string" "length not a multiple of 6";
-  let n = byte_len / 3 in
-  let a = Array.make n 0 in
-  for i = 0 to n - 1 do
-    a.(i)
-    <- (Char.code s.[i * 3] lsl 16)
-       lor (Char.code s.[(i * 3) + 1] lsl 8)
-       lor Char.code s.[(i * 3) + 2]
-  done;
-  let ok = ref true in
-  for i = 0 to (n / 2) - 1 do
-    let lo = a.(i * 2)
-    and hi = a.((i * 2) + 1) in
-    if
-      lo > hi
-      || hi > max_codepoint
-      || (lo <= surrogate_hi && hi >= surrogate_lo)
-      || (i > 0 && a.(((i - 1) * 2) + 1) + 1 >= lo)
-    then ok := false
-  done;
-  if not !ok then fail ~fn:"of_packed_string" "malformed data";
-  { ivals = a }
+  match decode s with
+  | Ok t -> t
+  | Error msg -> fail ~fn:"of_packed_string" msg
 ;;
 
 (* -- Comparison and hashing ------------------------------------------------ *)
@@ -1608,6 +1654,10 @@ let pp_class_elt ppf cp =
   | 0x0D -> Format.pp_print_string ppf "\\r"
   | cp when cp < 0x20 || cp = 0x7F || (cp >= 0x80 && cp <= 0x9F) ->
     Format.fprintf ppf "\\u{%X}" cp
+  (* the rest of White_Space: unescaped they are the separator to the eye *)
+  | 0xA0 | 0x1680 | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 ->
+    Format.fprintf ppf "\\u{%X}" cp
+  | cp when cp >= 0x2000 && cp <= 0x200A -> Format.fprintf ppf "\\u{%X}" cp
   | cp when cp <= 0x7E -> Format.pp_print_char ppf (Char.unsafe_chr cp)
   | cp ->
     let b = Buffer.create 4 in

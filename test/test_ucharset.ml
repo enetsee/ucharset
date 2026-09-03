@@ -49,7 +49,7 @@ let is_scalar cp =
 let elems t =
   List.concat_map
     (fun (lo, hi) -> List.init (hi - lo + 1) (fun i -> lo + i))
-    (Ucharset.to_list t)
+    (Ucharset.to_intervals t)
 ;;
 
 (* Sorted, non-empty, non-adjacent, surrogate-free: the invariant that makes
@@ -67,7 +67,7 @@ let is_canonical t =
           | Some p -> lo > p + 1)
       && go (Some hi) rest
   in
-  go None (Ucharset.to_list t)
+  go None (Ucharset.to_intervals t)
 ;;
 
 (* Every point at which membership can change, for either input. *)
@@ -84,7 +84,7 @@ let probes ts =
              (fun t ->
                 List.concat_map
                   (fun (lo, hi) -> [ lo - 1; lo; hi; hi + 1 ])
-                  (Ucharset.to_list t))
+                  (Ucharset.to_intervals t))
              ts))
 ;;
 
@@ -107,7 +107,7 @@ let set_of_pairs ~span n_max =
     set_print
       print_set
       (map
-         ~rev:Ucharset.to_list
+         ~rev:Ucharset.to_intervals
          Ucharset.of_intervals
          (list_size (Gen.int_range 0 n_max) (pair (int_range 0 span) (int_range 0 span)))))
 ;;
@@ -121,7 +121,7 @@ let arb_wide =
     set_print
       print_set
       (map
-         ~rev:Ucharset.to_list
+         ~rev:Ucharset.to_intervals
          Ucharset.of_intervals
          (list_size (Gen.int_range 0 12) (pair arb_scalar arb_scalar))))
 ;;
@@ -159,7 +159,7 @@ let constructors =
         ivals
         "singleton"
         [ 65, 65 ]
-        (Ucharset.to_list (Ucharset.singleton 65));
+        (Ucharset.to_intervals (Ucharset.singleton 65));
       Alcotest.check
         cset
         "singleton_char"
@@ -169,12 +169,12 @@ let constructors =
         ivals
         "range"
         [ 10, 20 ]
-        (Ucharset.to_list (Ucharset.range ~lo:10 ~hi:20));
+        (Ucharset.to_intervals (Ucharset.range ~lo:10 ~hi:20));
       Alcotest.check
         ivals
         "degenerate range"
         [ 7, 7 ]
-        (Ucharset.to_list (Ucharset.range ~lo:7 ~hi:7));
+        (Ucharset.to_intervals (Ucharset.range ~lo:7 ~hi:7));
       is_true "reversed range is empty" (Ucharset.is_empty (Ucharset.range ~lo:20 ~hi:10));
       Alcotest.check
         cset
@@ -191,17 +191,17 @@ let constructors =
         ivals
         "straddling"
         [ 0xD000, 0xD7FF; 0xE000, 0xF000 ]
-        (Ucharset.to_list (Ucharset.range ~lo:0xD000 ~hi:0xF000));
+        (Ucharset.to_intervals (Ucharset.range ~lo:0xD000 ~hi:0xF000));
       Alcotest.check
         ivals
         "up to the gap"
         [ 0xD000, 0xD7FF ]
-        (Ucharset.to_list (Ucharset.range ~lo:0xD000 ~hi:0xD7FF));
+        (Ucharset.to_intervals (Ucharset.range ~lo:0xD000 ~hi:0xD7FF));
       Alcotest.check
         ivals
         "from the gap"
         [ 0xE000, 0xE001 ]
-        (Ucharset.to_list (Ucharset.range ~lo:0xE000 ~hi:0xE001)))
+        (Ucharset.to_intervals (Ucharset.range ~lo:0xE000 ~hi:0xE001)))
   ; case "codepoints are validated" (fun () ->
       raises_invalid "surrogate lo" (fun () -> Ucharset.singleton 0xD800);
       raises_invalid "surrogate hi" (fun () -> Ucharset.singleton 0xDFFF);
@@ -214,6 +214,25 @@ let constructors =
       raises_invalid "of_list" (fun () -> Ucharset.of_list [ 1; 0xD800 ]);
       raises_invalid "add" (fun () -> Ucharset.add Ucharset.empty 0xD900);
       raises_invalid "remove" (fun () -> Ucharset.remove Ucharset.all 0xD900))
+  ; case "of_char_list" (fun () ->
+      is_true "empty" (Ucharset.is_empty (Ucharset.of_char_list []));
+      Alcotest.check
+        cset
+        "codes of the chars"
+        (Ucharset.of_list [ 0x41; 0x42; 0x43 ])
+        (Ucharset.of_char_list [ 'A'; 'B'; 'C' ]);
+      Alcotest.check
+        cset
+        "unsorted, with duplicates"
+        (Ucharset.of_list [ 0x61; 0x7A ])
+        (Ucharset.of_char_list [ 'z'; 'a'; 'z' ]);
+      (* a char is a byte, and its code is the codepoint, so the high half is
+         Latin-1 and not a UTF-8 lead byte *)
+      Alcotest.check
+        cset
+        "high bytes"
+        (Ucharset.singleton 0xFF)
+        (Ucharset.of_char_list [ '\255' ]))
   ; case "endpoints survive the packed sort key" (fun () ->
       (* [Builder.build] packs both endpoints of a pair into one int and sorts
          on the 42-bit key, so a narrower int drops or invents codepoints. The
@@ -224,17 +243,17 @@ let constructors =
         ivals
         "a pair either side of the 31-bit cutoff"
         [ 0x100, 0x100; 0x300, 0x300 ]
-        (Ucharset.to_list (Ucharset.of_intervals [ 0x100, 0x100; 0x300, 0x300 ]));
+        (Ucharset.to_intervals (Ucharset.of_intervals [ 0x100, 0x100; 0x300, 0x300 ]));
       Alcotest.check
         ivals
         "the widest key the builder can form"
         [ 0x10FFFF, 0x10FFFF ]
-        (Ucharset.to_list (Ucharset.of_intervals [ 0x10FFFF, 0x10FFFF ]));
+        (Ucharset.to_intervals (Ucharset.of_intervals [ 0x10FFFF, 0x10FFFF ]));
       Alcotest.check
         ivals
         "an astral pair sorted against ASCII"
         [ 0x61, 0x7A; 0x1F600, 0x1F601 ]
-        (Ucharset.to_list (Ucharset.of_intervals [ 0x1F600, 0x1F601; 0x61, 0x7A ])))
+        (Ucharset.to_intervals (Ucharset.of_intervals [ 0x1F600, 0x1F601; 0x61, 0x7A ])))
   ; case "of_list and of_intervals normalise" (fun () ->
       is_true "of_list []" (Ucharset.is_empty (Ucharset.of_list []));
       Alcotest.check
@@ -246,7 +265,7 @@ let constructors =
         ivals
         "adjacency"
         [ 1, 3 ]
-        (Ucharset.to_list (Ucharset.of_list [ 3; 1; 2 ]));
+        (Ucharset.to_intervals (Ucharset.of_list [ 3; 1; 2 ]));
       is_true "of_intervals []" (Ucharset.is_empty (Ucharset.of_intervals []));
       is_true
         "reversed pairs dropped"
@@ -255,17 +274,17 @@ let constructors =
         ivals
         "overlapping"
         [ 1, 2; 5, 15 ]
-        (Ucharset.to_list (Ucharset.of_intervals [ 5, 10; 8, 15; 1, 2 ]));
+        (Ucharset.to_intervals (Ucharset.of_intervals [ 5, 10; 8, 15; 1, 2 ]));
       Alcotest.check
         ivals
         "abutting"
         [ 5, 12 ]
-        (Ucharset.to_list (Ucharset.of_intervals [ 5, 9; 10, 12 ]));
+        (Ucharset.to_intervals (Ucharset.of_intervals [ 5, 9; 10, 12 ]));
       Alcotest.check
         ivals
         "surrogate split"
         [ 0xD700, 0xD7FF; 0xE000, 0xE100 ]
-        (Ucharset.to_list (Ucharset.of_intervals [ 0xD700, 0xE100 ])))
+        (Ucharset.to_intervals (Ucharset.of_intervals [ 0xD700, 0xE100 ])))
   ; case "the uchar family cannot raise" (fun () ->
       let a = Uchar.of_int 0x61
       and z = Uchar.of_int 0x7A in
@@ -344,6 +363,13 @@ let constructors =
                      ~lo:cp
                      ~hi:cp)
                ])
+      ; prop
+          "of_char_list is of_list on the codes"
+          QCheck.(list_size (Gen.int_range 0 20) char)
+          (fun cs ->
+             Ucharset.equal
+               (Ucharset.of_char_list cs)
+               (Ucharset.of_list (List.map Char.code cs)))
       ; (* [of_intervals] goes through [Builder.build], which sorts on a packed
            key; [range] and [union] do not pack anything. Two independent
            constructions of the same set, so a key that wrapped or a sort that
@@ -364,8 +390,8 @@ let constructors =
       ; prop "of_intervals is canonical" arb_wide is_canonical
       ; prop "of_list round trips through elems" arb_small (fun t ->
           Ucharset.equal (Ucharset.of_list (elems t)) t)
-      ; prop "of_intervals round trips through to_list" arb_wide (fun t ->
-          Ucharset.equal (Ucharset.of_intervals (Ucharset.to_list t)) t)
+      ; prop "of_intervals round trips through to_intervals" arb_wide (fun t ->
+          Ucharset.equal (Ucharset.of_intervals (Ucharset.to_intervals t)) t)
       ]
 ;;
 
@@ -519,15 +545,17 @@ let queries =
         (Ucharset.prev_elt_opt r 10))
   ]
   @ qc
-      [ prop "to_list agrees with mem" arb_small (fun t ->
+      [ prop "to_intervals agrees with mem" arb_small (fun t ->
           elems t = List.filter (Ucharset.mem t) (List.init 0x200 Fun.id))
       ; prop "cardinal counts elements" arb_small (fun t ->
           Ucharset.cardinal t = List.length (elems t))
       ; prop "min and max are the extremes" arb_wide (fun t ->
-          match Ucharset.to_list t with
+          match Ucharset.to_intervals t with
           | [] -> Ucharset.min_elt_opt t = None && Ucharset.max_elt_opt t = None
           | (lo, _) :: _ ->
-            let hi = snd (List.nth (Ucharset.to_list t) (Ucharset.num_intervals t - 1)) in
+            let hi =
+              snd (List.nth (Ucharset.to_intervals t) (Ucharset.num_intervals t - 1))
+            in
             Ucharset.min_elt_opt t = Some lo && Ucharset.max_elt_opt t = Some hi)
       ; prop "choose returns a member" arb_wide (fun t ->
           match Ucharset.choose_opt t with
@@ -772,6 +800,51 @@ let algebra_units =
         "inter_list with an empty member"
         (Ucharset.is_empty
            (Ucharset.inter_list [ Ucharset.all; Ucharset.empty; Ucharset.all ])))
+  ; case "union_list of two goes straight to union" (fun () ->
+      (* [inter_list] had this fast path and [union_list] did not, so two sets
+         went through the builder and its sort. Allocation is the observable. *)
+      let mk off =
+        Ucharset.of_intervals
+          (List.init 2000 (fun i ->
+             let lo = 0x10000 + off + (i * 5) in
+             lo, lo + 1))
+      in
+      let a = mk 0
+      and b = mk 2 in
+      (* built once: the two cons cells would otherwise show up in the count *)
+      let pair = [ a; b ] in
+      let direct = words_per_call 20 (fun _ -> Ucharset.union a b) in
+      let listed = words_per_call 20 (fun _ -> Ucharset.union_list pair) in
+      is_true
+        (Printf.sprintf "union_list %.0f words against union's %.0f" listed direct)
+        (listed <= direct +. 4.0))
+  ; case "xor sweeps once" (fun () ->
+      (* [union (diff a b) (diff b a)] built three arrays. The toggle merge
+         builds one, and runs that meet come back merged. *)
+      let mk off =
+        Ucharset.of_intervals
+          (List.init 2000 (fun i ->
+             let lo = 0x10000 + off + (i * 5) in
+             lo, lo + 1))
+      in
+      let a = mk 0
+      and b = mk 2 in
+      let x = words_per_call 20 (fun _ -> Ucharset.xor a b) in
+      let u = words_per_call 20 (fun _ -> Ucharset.union a b) in
+      is_true
+        (Printf.sprintf "xor allocates %.0f words against union's %.0f" x u)
+        (x <= u *. 1.5);
+      Alcotest.check
+        cset
+        "abutting runs merge"
+        (Ucharset.range ~lo:0 ~hi:10)
+        (Ucharset.xor (Ucharset.range ~lo:0 ~hi:5) (Ucharset.range ~lo:6 ~hi:10));
+      Alcotest.check
+        ivals
+        "a hole punched in a run"
+        [ 0, 1; 5, 10 ]
+        (Ucharset.to_intervals
+           (Ucharset.xor (Ucharset.range ~lo:0 ~hi:10) (Ucharset.range ~lo:2 ~hi:4))))
   ; case "documented physical sharing" (fun () ->
       (* the interface promises these return an argument unchanged *)
       let x = Ucharset.range ~lo:65 ~hi:90 in
@@ -806,24 +879,24 @@ let builder =
         ivals
         "first build"
         [ 5, 5; 10, 20 ]
-        (Ucharset.to_list (Ucharset.Builder.build b));
+        (Ucharset.to_intervals (Ucharset.Builder.build b));
       Alcotest.check
         ivals
         "second build"
         [ 5, 5; 10, 20 ]
-        (Ucharset.to_list (Ucharset.Builder.build b));
+        (Ucharset.to_intervals (Ucharset.Builder.build b));
       Ucharset.Builder.add b 6;
       Alcotest.check
         ivals
         "still usable"
         [ 5, 6; 10, 20 ]
-        (Ucharset.to_list (Ucharset.Builder.build b));
+        (Ucharset.to_intervals (Ucharset.Builder.build b));
       Ucharset.Builder.add_set b (Ucharset.range ~lo:100 ~hi:110);
       Alcotest.check
         ivals
         "add_set"
         [ 5, 6; 10, 20; 100, 110 ]
-        (Ucharset.to_list (Ucharset.Builder.build b));
+        (Ucharset.to_intervals (Ucharset.Builder.build b));
       Ucharset.Builder.add_uchar b (Uchar.of_int 0x1F600);
       is_true "add_uchar" (Ucharset.mem (Ucharset.Builder.build b) 0x1F600);
       Ucharset.Builder.reset b;
@@ -851,7 +924,7 @@ let builder =
         ivals
         "surrogate split"
         [ 0xD000, 0xD7FF; 0xE000, 0xF000 ]
-        (Ucharset.to_list (Ucharset.Builder.build b)))
+        (Ucharset.to_intervals (Ucharset.Builder.build b)))
   ]
   @ qc
       [ QCheck.Test.make
@@ -907,16 +980,25 @@ let iteration =
         (List.of_seq (Ucharset.to_seq_intervals Ucharset.all));
       raises_invalid "map validates its results" (fun () ->
         Ucharset.map (fun _ -> 0xD800) (Ucharset.singleton 5)))
+  ; case "map sizes its builder by cardinal" (fun () ->
+      (* One pair per codepoint, so the output size is known exactly. Hinting
+         the interval count instead cost 8.2 words per codepoint here. *)
+      let n = 50_000 in
+      let t = Ucharset.range ~lo:0x10000 ~hi:(0x10000 + n - 1) in
+      let w = words_per_call 1 (fun _ -> Ucharset.map (fun cp -> cp + 1) t) in
+      is_true
+        (Printf.sprintf "map allocates %.2f words per codepoint" (w /. float_of_int n))
+        (w < 6.0 *. float_of_int n))
   ]
   @ qc
       [ prop "iter visits exactly the elements" arb_small (fun t ->
           let acc = ref [] in
           Ucharset.iter (fun cp -> acc := cp :: !acc) t;
           List.rev !acc = elems t)
-      ; prop "iter_intervals visits exactly to_list" arb_wide (fun t ->
+      ; prop "iter_intervals visits exactly to_intervals" arb_wide (fun t ->
           let acc = ref [] in
           Ucharset.iter_intervals (fun lo hi -> acc := (lo, hi) :: !acc) t;
-          List.rev !acc = Ucharset.to_list t)
+          List.rev !acc = Ucharset.to_intervals t)
       ; prop "fold matches iter" arb_small (fun t ->
           List.rev (Ucharset.fold (fun cp a -> cp :: a) t []) = elems t)
       ; prop "fold_intervals sums to cardinal" arb_wide (fun t ->
@@ -924,8 +1006,8 @@ let iteration =
           = Ucharset.cardinal t)
       ; prop "to_seq matches elems" arb_small (fun t ->
           List.of_seq (Ucharset.to_seq t) = elems t)
-      ; prop "to_seq_intervals matches to_list" arb_wide (fun t ->
-          List.of_seq (Ucharset.to_seq_intervals t) = Ucharset.to_list t)
+      ; prop "to_seq_intervals matches to_intervals" arb_wide (fun t ->
+          List.of_seq (Ucharset.to_seq_intervals t) = Ucharset.to_intervals t)
         (* [arb_small] only; [to_seq] enumerates codepoints, and a wide set can
            hold most of the codespace *)
       ; prop "of_seq inverts to_seq" arb_small (fun t ->
@@ -953,6 +1035,15 @@ let iteration =
           Ucharset.equal
             (Ucharset.map (fun x -> x * 3) t)
             (Ucharset.of_list (List.map (fun x -> x * 3) (elems t))))
+        (* [x * 3] is injective and increasing, so it never exercises the sort
+           and dedup [build] does. These two do: halving collapses pairs of
+           codepoints together, and negating reverses the order. *)
+      ; prop "map collapses" arb_small (fun t ->
+          let f x = x / 2 in
+          Ucharset.equal (Ucharset.map f t) (Ucharset.of_list (List.map f (elems t))))
+      ; prop "map reverses" arb_small (fun t ->
+          let f x = 0x1000 - x in
+          Ucharset.equal (Ucharset.map f t) (Ucharset.of_list (List.map f (elems t))))
       ; prop "filter with a true predicate is the identity" arb_small (fun t ->
           Ucharset.equal (Ucharset.filter (fun _ -> true) t) t)
       ]
@@ -1120,6 +1211,18 @@ let packed =
   [ case "empty" (fun () ->
       Alcotest.(check string) "encode" "" (Ucharset.to_packed_string Ucharset.empty);
       is_true "decode" (Ucharset.is_empty (Ucharset.of_packed_string "")))
+  ; case "the encoding has not moved since v0.1.0" (fun () ->
+      (* Generated blobs are committed to other repositories, so the format is
+         frozen. This literal came out of a v0.1.0 build, not out of HEAD. *)
+      let blob =
+        "\x00\x00\x41\x00\x00\x5A\x00\xD7\xFF\x00\xD7\xFF\x00\xE0\x00\x00\xE0\x01\x10\xFF\xFF\x10\xFF\xFF"
+      in
+      let s =
+        Ucharset.of_intervals
+          [ 0x41, 0x5A; 0xD7FF, 0xD7FF; 0xE000, 0xE001; 0x10FFFF, 0x10FFFF ]
+      in
+      Alcotest.check cset "decodes" s (Ucharset.of_packed_string blob);
+      Alcotest.(check string) "encodes" blob (Ucharset.to_packed_string s))
   ; case "malformed data is rejected, not repaired" (fun () ->
       rejected "short" "abc";
       rejected "length not a multiple of six" (String.make 7 '\000');
@@ -1140,13 +1243,41 @@ let packed =
           Ucharset.equal (Ucharset.of_packed_string (Ucharset.to_packed_string t)) t)
       ; prop "round trips through the option form" arb_wide (fun t ->
           Ucharset.of_packed_string_opt (Ucharset.to_packed_string t) = Some t)
+        (* One decoder behind both entry points. The cursor walk is #13's, so the
+           blobs land on the gap, order and overlap rules rather than failing at
+           the first byte the way random data does. *)
+      ; prop2
+          "the two decoders agree"
+          QCheck.(list_size (Gen.int_range 0 5) (pair (int_range (-2) 3) (int_range 0 3)))
+          QCheck.bool
+          (fun (steps, stray) ->
+             let cur = ref 10 in
+             let ivs =
+               List.map
+                 (fun (gap, len) ->
+                    let lo = !cur + gap + 1 in
+                    cur := lo + len;
+                    lo, !cur)
+                 steps
+             in
+             let s = pack ivs ^ if stray then "\x00" else "" in
+             let opt = Ucharset.of_packed_string_opt s in
+             let exn =
+               match Ucharset.of_packed_string s with
+               | t -> Some t
+               | exception Invalid_argument _ -> None
+             in
+             match opt, exn with
+             | None, None -> true
+             | Some a, Some b -> Ucharset.equal a b
+             | _ -> false)
       ; prop "six bytes per interval" arb_wide (fun t ->
           String.length (Ucharset.to_packed_string t) = Ucharset.num_intervals t * 6)
         (* The documented layout, against an independent encoder. Round trips
            pin the two halves to each other, not to the format, so a byte order
            flipped on both sides would survive them. *)
       ; prop "encodes lo before hi, big-endian, lowest interval first" arb_wide (fun t ->
-          Ucharset.to_packed_string t = pack (Ucharset.to_list t))
+          Ucharset.to_packed_string t = pack (Ucharset.to_intervals t))
         (* Acceptance is canonical form and nothing wider. Each step walks the
            cursor on by [gap + 1], so a gap of zero abuts the interval before
            and a negative one overlaps it; both must be refused, and accepted
@@ -1430,7 +1561,7 @@ let partition =
       and q = Ucharset.Partition.of_set (spread ~off:1) in
       let segments =
         List.fold_left
-          (fun acc b -> acc + List.length (Ucharset.to_list b))
+          (fun acc b -> acc + List.length (Ucharset.to_intervals b))
           0
           (Ucharset.Partition.blocks p)
       in
@@ -1578,22 +1709,30 @@ let partition =
           ~count:200
           ~name:"refine_all matches folding refine"
           QCheck.(list_size (Gen.int_range 0 5) arb_partition)
+          (* [norm] used to sort both sides, which threw away the ordering the
+             mli promises. Blocks come back in increasing order of least
+             element either way, so the lists must match element for element. *)
           (fun ps ->
-             norm (Ucharset.refine_all ps)
-             = norm (List.fold_left Ucharset.refine [ Ucharset.all ] ps))
+             List.equal
+               Ucharset.equal
+               (Ucharset.refine_all ps)
+               (List.fold_left Ucharset.refine [ Ucharset.all ] ps))
       ; QCheck.Test.make
           ~count:200
-          ~name:"meet_all matches folding meet"
+          ~name:"meet_all matches folding meet, numbering included"
           QCheck.(list_size (Gen.int_range 0 5) arb_partition)
           (fun ps ->
              let pps = List.map Ucharset.Partition.of_blocks ps in
-             norm (Ucharset.Partition.blocks (Ucharset.Partition.meet_all pps))
-             = norm
-                 (Ucharset.Partition.blocks
-                    (List.fold_left
-                       Ucharset.Partition.meet
-                       Ucharset.Partition.universe
-                       pps)))
+             let halved = Ucharset.Partition.meet_all pps in
+             let folded =
+               List.fold_left Ucharset.Partition.meet Ucharset.Partition.universe pps
+             in
+             let reps = Ucharset.Partition.representatives halved in
+             List.equal
+               Ucharset.equal
+               (Ucharset.Partition.blocks halved)
+               (Ucharset.Partition.blocks folded)
+             && reps = List.sort_uniq Stdlib.compare reps)
       ; prop "meet with the universe is the identity" arb_partition (fun p ->
           norm (Ucharset.refine p [ Ucharset.all ]) = norm p)
       ; prop "refine is idempotent" arb_partition (fun p ->
@@ -1612,6 +1751,24 @@ let partition =
                  (fun b -> not (Ucharset.mem b cp))
                  (Ucharset.Partition.blocks p)
              | Some i -> Ucharset.mem (Ucharset.Partition.block p i) cp)
+        (* The partition under test above is an [of_blocks] one. A [meet] lays
+           its segments out by the sweep, not by the input blocks, so it is the
+           shape [block_of_opt] is really for. *)
+      ; prop
+          "block_of_opt on a meet agrees with membership"
+          QCheck.(triple arb_partition arb_partition arb_scalar)
+          (fun (p, q, cp) ->
+             let m =
+               Ucharset.Partition.meet
+                 (Ucharset.Partition.of_blocks p)
+                 (Ucharset.Partition.of_blocks q)
+             in
+             match Ucharset.Partition.block_of_opt m cp with
+             | None ->
+               List.for_all
+                 (fun b -> not (Ucharset.mem b cp))
+                 (Ucharset.Partition.blocks m)
+             | Some i -> Ucharset.mem (Ucharset.Partition.block m i) cp)
       ; prop "block_of_opt inverts representative" arb_partition (fun p ->
           let p = Ucharset.Partition.of_blocks p in
           let n = Ucharset.Partition.num_blocks p in
@@ -1693,6 +1850,18 @@ let printing =
         "named control escapes"
         "{\\0 \\t-\\r}"
         (cls (Ucharset.of_list [ 0x00; 0x09; 0x0A; 0x0B; 0x0C; 0x0D ]));
+      (* the rest of White_Space: bare, these read as the separator *)
+      List.iter
+        (fun cp ->
+           Alcotest.(check string)
+             (Printf.sprintf "U+%04X" cp)
+             (Printf.sprintf "{\\u{%X}}" cp)
+             (cls (Ucharset.singleton cp)))
+        [ 0xA0; 0x1680; 0x2000; 0x2005; 0x200A; 0x2028; 0x2029; 0x202F; 0x205F; 0x3000 ];
+      Alcotest.(check string)
+        "no-break space beside real separators"
+        "{A Z \\u{A0}}"
+        (cls (Ucharset.of_list [ 0x41; 0x5A; 0xA0 ]));
       Alcotest.(check string) "first printable" "{!}" (cls (Ucharset.singleton 0x21));
       Alcotest.(check string) "last printable" "{~}" (cls (Ucharset.singleton 0x7E));
       Alcotest.(check string) "DEL" "{\\u{7F}}" (cls (Ucharset.singleton 0x7F));
@@ -1826,16 +1995,16 @@ let bulk =
     Alcotest.(check ivals)
       (label "of_intervals shuffled")
       expected
-      (Ucharset.to_list (Ucharset.of_intervals pairs));
+      (Ucharset.to_intervals (Ucharset.of_intervals pairs));
     Alcotest.(check ivals)
       (label "of_intervals ascending")
       expected
-      (Ucharset.to_list (Ucharset.of_intervals ascending));
+      (Ucharset.to_intervals (Ucharset.of_intervals ascending));
     (* Builder, the same two orders. *)
     let via_builder ps =
       let b = Ucharset.Builder.create () in
       List.iter (fun (lo, hi) -> Ucharset.Builder.add_interval b ~lo ~hi) ps;
-      Ucharset.to_list (Ucharset.Builder.build b)
+      Ucharset.to_intervals (Ucharset.Builder.build b)
     in
     Alcotest.(check ivals) (label "Builder shuffled") expected (via_builder pairs);
     Alcotest.(check ivals) (label "Builder ascending") expected (via_builder ascending);
@@ -1844,7 +2013,7 @@ let bulk =
     Alcotest.(check ivals)
       (label "of_list")
       (oracle (List.map (fun c -> c, c) singles))
-      (Ucharset.to_list (Ucharset.of_list singles))
+      (Ucharset.to_intervals (Ucharset.of_list singles))
   in
   [ (* Width 1 keeps every interval a singleton, so runs = cardinal; wider
        intervals overlap and exercise canonicalization too. *)
@@ -1867,13 +2036,13 @@ let bulk =
       Alcotest.(check ivals)
         "duplicated lo"
         (oracle pairs)
-        (Ucharset.to_list (Ucharset.of_intervals pairs)))
+        (Ucharset.to_intervals (Ucharset.of_intervals pairs)))
   ; case "already ascending and dense" (fun () ->
       let pairs = List.init 4000 (fun i -> i * 3, (i * 3) + 1) in
       Alcotest.(check ivals)
         "ascending"
         (oracle pairs)
-        (Ucharset.to_list (Ucharset.of_intervals pairs)))
+        (Ucharset.to_intervals (Ucharset.of_intervals pairs)))
   ]
 ;;
 

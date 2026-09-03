@@ -218,8 +218,8 @@ val diff : t -> remove:t -> t
 (** [comp t] is [diff all ~remove:t]. *)
 val comp : t -> t
 
-(** Symmetric difference: the values in exactly one of the two. The one
-    operation here that allocates more than a single array. *)
+(** Symmetric difference: the values in exactly one of the two. One merge over
+    the endpoints of both, like {!union} and {!inter}. *)
 val xor : t -> t -> t
 
 (** [union_list ts] is the union of all of [ts], and [empty] for the empty list.
@@ -249,12 +249,16 @@ val add_range : t -> lo:int -> hi:int -> t
 val remove_range : t -> lo:int -> hi:int -> t
 
 (** [filter f t] keeps the codepoints of [t] satisfying [f]. O(cardinal); it
-    visits every codepoint, so over a million calls on [all]. *)
+    visits every codepoint, so over a million calls on [all]. The number of runs
+    it will emit is not known in advance, so the accumulator starts at [t]'s
+    interval count and grows: a predicate that fragments a large set pays for
+    that growth. *)
 val filter : (int -> bool) -> t -> t
 
 (** [map f t] is the image of [t] under [f]. O(cardinal), and every result is
     validated, so [f] returning a surrogate or an out-of-range value raises
-    [Invalid_argument]. *)
+    [Invalid_argument]. [f] need not be injective or monotonic; the results are
+    sorted and merged. *)
 val map : (int -> int) -> t -> t
 
 (** {1 Partition refinement}
@@ -310,7 +314,10 @@ module Partition : sig
   val meet : t -> t -> t
 
   (** [meet_all ps] is the common refinement of all of [ps], and [universe] for
-      the empty list. *)
+      the empty list. Meets pairwise and halves the list each round; a round
+      never produces more segments than it consumed, so [k] partitions of [S]
+      segments in total cost O(S log k), against the O(S k) of folding {!meet}
+      one at a time. *)
   val meet_all : t list -> t
 
   (** Number of blocks in the partition. O(1). *)
@@ -321,7 +328,9 @@ module Partition : sig
   val blocks : t -> set list
 
   (** [block p i] builds just block [i]. Raises [Invalid_argument] if [i] is out
-      of range. *)
+      of range. It scans every segment, so building all of them one at a time
+      costs O(num_blocks * segments); {!blocks} does the whole set in one pass
+      and is the way to build more than one. *)
   val block : t -> int -> set
 
   (** The least element of each block, in index order (hence increasing).
@@ -447,8 +456,9 @@ val to_seq : t -> int Seq.t
 val to_seq_intervals : t -> (int * int) Seq.t
 
 (** The maximal runs of the set as inclusive [(lo, hi)] pairs, in increasing
-    order. *)
-val to_list : t -> (int * int) list
+    order. Not the inverse of {!of_list}, which takes codepoints;
+    {!of_intervals} is. *)
+val to_intervals : t -> (int * int) list
 
 (** {1 Comparison and hashing}
 
@@ -492,10 +502,13 @@ val to_hex_string : t -> string
     as numbers: [{a-g j m-t}], [{α-ω}], [{é € 😀-😁}].
 
     Members are written as themselves, UTF-8 encoded. The escapes cover the
-    syntax ([-], space, [{] and [}]), the backslash that introduces them, and
-    the C0 and C1 controls, written [\0], [\t], [\n], [\v], [\f], [\r] or
-    [\u{XX}]. Nothing else is escaped, so unassigned and private-use members
-    reach the terminal as whatever it makes of them.
+    syntax ([-], space, [{] and [}]), the backslash that introduces them, the C0
+    and C1 controls, and the rest of Unicode's whitespace ([U+00A0], [U+1680],
+    [U+2000] to [U+200A], [U+2028], [U+2029], [U+202F], [U+205F], [U+3000]),
+    which would otherwise be indistinguishable from the separator. They are
+    written [\0], [\t], [\n], [\v], [\f], [\r] or [\u{XX}]. Nothing else is
+    escaped, so unassigned and private-use members reach the terminal as
+    whatever it makes of them.
 
     A view, not regex syntax; an engine would want a single bracketed class
     with no separators, and its own escaping rules. *)
