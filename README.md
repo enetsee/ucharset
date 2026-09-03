@@ -13,7 +13,11 @@ excluded by construction, and functions taking raw codepoints reject it.
 
 ## Install
 
-Not released to opam yet.
+```sh
+opam install ucharset
+```
+
+The development version:
 
 ```sh
 opam pin add ucharset https://github.com/enetsee/ucharset.git
