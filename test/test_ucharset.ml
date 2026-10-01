@@ -1592,6 +1592,33 @@ let partition =
            segments
            per_segment)
         (per_segment <= 12.))
+  ; case "meet stays linear when the block keys share their low bits" (fun () ->
+      (* [q] has 2^18 blocks and every block of [p] sits in [q]'s first, so
+         the keys are all multiples of 2^18. Hashing on the low bits
+         probed quadratically: 4.3 s against 0.02 s, so the 1 s cap is
+         loose both ways. *)
+      let n = 1 lsl 18
+      and b = 0xE000 in
+      let p =
+        Ucharset.Partition.of_blocks (List.init n (fun i -> Ucharset.singleton (b + i)))
+      and q =
+        Ucharset.Partition.of_blocks
+          (Ucharset.range ~lo:b ~hi:(b + n - 1)
+           :: List.init (n - 1) (fun i -> Ucharset.singleton (b + n + i)))
+      in
+      let t = Sys.time () in
+      let m = Ucharset.Partition.meet p q in
+      let dt = Sys.time () -. t in
+      Alcotest.(check int) "one block per codepoint" n (Ucharset.Partition.num_blocks m);
+      Alcotest.(check int)
+        "last representative"
+        (b + n - 1)
+        (Ucharset.Partition.representative m (n - 1));
+      Alcotest.(check (option int))
+        "block_of_opt"
+        (Some 12345)
+        (Ucharset.Partition.block_of_opt m (b + 12345));
+      is_true (Printf.sprintf "meet took %.2f s, over 1 s" dt) (dt < 1.))
   ]
   @ qc
       [ (* Exactly one of [s] and [comp s] holds codepoint 0, so testing both

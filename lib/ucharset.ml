@@ -1215,11 +1215,13 @@ module Partition = struct
        [Hashtbl] costs on every [meet]. [-1] marks a free slot; [mask]
        keeps the load factor at or below 1/2. *)
     let nkeys = min cap (p.nblocks * q.nblocks) in
-    let tsize =
-      let rec pow2 k = if k >= nkeys * 2 then k else pow2 (k * 2) in
-      pow2 8
+    let tsize, tbits =
+      let rec pow2 k b = if k >= nkeys * 2 then k, b else pow2 (k * 2) (b + 1) in
+      pow2 8 3
     in
     let mask = tsize - 1 in
+    (* [land max_int] leaves 62 bits; the slot is the top [tbits]. *)
+    let shift = 62 - tbits in
     let tkey = Array.make tsize (-1)
     and tval = Array.make tsize 0 in
     (* Indexed by block id, so [nkeys] again, not [cap]. *)
@@ -1237,10 +1239,12 @@ module Partition = struct
       then (
         let key = (p.lab.(!i) * q.nblocks) + q.lab.(!j) in
         let id =
-          (* Knuth multiplicative, then linear probe. The table can
+          (* Fibonacci: the high bits of the product, since the low bits
+             see only the key's low bits, which keys sharing a [q] block
+             share when [q.nblocks] is even. Linear probe; the table can
              never fill: at most [nkeys] insertions into at least
              [2 * nkeys] slots. *)
-          let slot = ref (key * 0x27d4_eb2d land max_int land mask) in
+          let slot = ref ((key * 0x4F1B_BCDC_BFA5_3E0B land max_int) lsr shift) in
           while Array.unsafe_get tkey !slot >= 0 && Array.unsafe_get tkey !slot <> key do
             slot := (!slot + 1) land mask
           done;
