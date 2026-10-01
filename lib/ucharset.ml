@@ -340,7 +340,15 @@ let union t1 t2 =
       and hi1 = Array.unsafe_get a1 ((!i1 * 2) + 1) in
       let lo2 = Array.unsafe_get a2 (!i2 * 2)
       and hi2 = Array.unsafe_get a2 ((!i2 * 2) + 1) in
-      if lo1 <= lo2
+      (* A run in both is taken once and leaves both pure; on any other tie
+         the longer goes first, so the shorter is absorbed and a nested input
+         still comes back unchanged. *)
+      if lo1 = lo2 && hi1 = hi2
+      then (
+        ignore (push_canonical buf len ~lo:lo1 ~hi:hi1 : bool);
+        incr i1;
+        incr i2)
+      else if lo1 < lo2 || (lo1 = lo2 && hi1 > hi2)
       then (
         if not (push_canonical buf len ~lo:lo1 ~hi:hi1) then pure_t2 := false;
         incr i1)

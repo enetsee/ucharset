@@ -742,6 +742,13 @@ let algebra_props =
   ; prop2 "both are subsets of the union" arb_wide arb_wide (fun (a, b) ->
       Ucharset.subset a ~of_:(Ucharset.union a b)
       && Ucharset.subset b ~of_:(Ucharset.union a b))
+  ; prop2 "union of nested sets returns the larger" arb_small arb_small (fun (a, b) ->
+      (* [diff] keeps most of [a]'s lower bounds, so the subset often shares
+         one with its superset: the case a tie on [lo] used to copy. *)
+      let sub = Ucharset.diff a ~remove:b in
+      let r1 = Ucharset.union sub a
+      and r2 = Ucharset.union a sub in
+      (r1 == a || r1 == sub) && (r2 == a || r2 == sub))
   ; prop2 "disjoint iff the intersection is empty" arb_wide arb_wide (fun (a, b) ->
       Ucharset.disjoint a b = Ucharset.is_empty (Ucharset.inter a b))
   ; prop "subset is reflexive" arb_wide (fun a -> Ucharset.subset a ~of_:a)
