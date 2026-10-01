@@ -490,7 +490,6 @@ let diff t ~remove =
 
 let comp t = diff all ~remove:t
 
-(* Composed from the two differences; three allocations, still O(n + m). *)
 (* Read a canonical array as the points where membership toggles: [lo] turns a
    run on and [hi + 1] turns it off, strictly increasing. Membership is then the
    parity of the toggles at or below a codepoint, so the symmetric difference is
