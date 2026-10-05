@@ -1,3 +1,17 @@
+## v0.2.1 (2026-10-05)
+
+### Performance
+
+- `Partition.meet` could slow to a crawl when one partition had many blocks inside a single block
+  of the other: 4 seconds where it should take a few milliseconds. Its lookup table now spreads
+  those cases evenly.
+- `union` returns the larger set itself, rather than a copy, when one set contains the other and
+  they start at the same codepoint.
+
+### Packaging
+
+- Needs dune 3.0 or later, down from 3.20.
+
 ## v0.2.0 (2026-09-03)
 
 ### Breaking
