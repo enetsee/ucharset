@@ -126,6 +126,47 @@ let arb_wide =
          (list_size (Gen.int_range 0 12) (pair arb_scalar arb_scalar))))
 ;;
 
+(* [t] with one endpoint moved by [d], left alone where that would leave the
+   scalars or reverse the run. *)
+let nudge t i d =
+  match Ucharset.to_intervals t with
+  | [] -> t
+  | ivs ->
+    let j = i / 2 mod List.length ivs in
+    Ucharset.of_intervals
+      (List.mapi
+         (fun k (lo, hi) ->
+            if k <> j
+            then lo, hi
+            else (
+              let lo', hi' = if i mod 2 = 0 then lo + d, hi else lo, hi + d in
+              if is_scalar lo' && is_scalar hi' && lo' <= hi' then lo', hi' else lo, hi))
+         ivs)
+;;
+
+(* Pairs whose endpoints meet, which random pairs almost never do: one nested
+   in the other, or one endpoint nudged by up to 2. Either order. *)
+let arb_related =
+  let relate (a, b, (k, i, d)) =
+    let x, y =
+      match k mod 3 with
+      | 0 -> Ucharset.diff a ~remove:b, a
+      | 1 -> a, Ucharset.union a b
+      | _ -> a, nudge a i (if d < 2 then d - 2 else d - 1)
+    in
+    if k / 3 = 0 then x, y else y, x
+  in
+  QCheck.(
+    set_print
+      (fun (x, y) -> print_set x ^ ", " ^ print_set y)
+      (map
+         relate
+         (triple
+            arb_wide
+            arb_wide
+            (triple (int_range 0 5) (int_range 0 23) (int_range 0 3)))))
+;;
+
 let prop ?(count = 300) name arb f = QCheck.Test.make ~count ~name arb f
 let prop2 ?(count = 300) name a b f = QCheck.Test.make ~count ~name (QCheck.pair a b) f
 
@@ -773,6 +814,33 @@ let algebra_props =
       Ucharset.equal
         (Ucharset.remove_range t ~lo:50 ~hi:80)
         (Ucharset.diff t ~remove:(Ucharset.range ~lo:50 ~hi:80)))
+  ]
+;;
+
+(* Every binary operation against membership at the probes, on pairs from
+   [arb]: one list, so each targeted generator runs the lot. *)
+let pair_props name arb =
+  let p op_name f = prop (Printf.sprintf "%s on %s pairs" op_name name) arb f in
+  let agrees (a, b) got want =
+    is_canonical got
+    && List.for_all
+         (fun cp -> Ucharset.mem got cp = want (Ucharset.mem a cp) (Ucharset.mem b cp))
+         (probes [ a; b ])
+  in
+  let holds (a, b) want =
+    List.for_all
+      (fun cp -> want (Ucharset.mem a cp) (Ucharset.mem b cp))
+      (probes [ a; b ])
+  in
+  [ p "union" (fun (a, b) -> agrees (a, b) (Ucharset.union a b) ( || ))
+  ; p "inter" (fun (a, b) -> agrees (a, b) (Ucharset.inter a b) ( && ))
+  ; p "diff" (fun (a, b) ->
+      agrees (a, b) (Ucharset.diff a ~remove:b) (fun x y -> x && not y))
+  ; p "xor" (fun (a, b) -> agrees (a, b) (Ucharset.xor a b) ( <> ))
+  ; p "subset" (fun (a, b) ->
+      Ucharset.subset a ~of_:b = holds (a, b) (fun x y -> (not x) || y))
+  ; p "disjoint" (fun (a, b) ->
+      Ucharset.disjoint a b = holds (a, b) (fun x y -> not (x && y)))
   ]
 ;;
 
@@ -2309,7 +2377,7 @@ let () =
     "ucharset"
     [ "constructors", constructors
     ; "queries", queries
-    ; "algebra", qc algebra_props @ algebra_units
+    ; "algebra", qc (algebra_props @ pair_props "related" arb_related) @ algebra_units
     ; "builder", builder
     ; "bulk construction", bulk
     ; "iteration", iteration
