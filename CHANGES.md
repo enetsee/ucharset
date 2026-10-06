@@ -8,10 +8,6 @@
 - `union` returns the larger set itself, rather than a copy, when one set contains the other and
   they start at the same codepoint.
 
-### Packaging
-
-- Needs dune 3.0 or later, down from 3.20.
-
 ## v0.2.0 (2026-09-03)
 
 ### Breaking
